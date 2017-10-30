@@ -23,10 +23,9 @@ mod page1;
 
 use page1::page1;
 
-mod p404;
+mod http_errors;
 
-use p404::p404;
-use p404::HTML as HTML404;
+use http_errors::HTML as HTML_ERROR;
 use futures::prelude::*;
 
 use hyper::header::ContentLength;
@@ -53,13 +52,16 @@ impl RouterService {
 
     fn route(&self, req: Request) -> ResponseFuture {
         let stat_file = self.static_.call(req)
-            .or_else(|_err| {
-                future::ok(
-                  Response::new()
-                  .with_status(StatusCode::NotFound)
-                  .with_header(ContentLength(HTML404.len() as u64))
-                  .with_body(HTML404)
-                )
+            .and_then(|res| {
+                let statusCode = res.status();
+                let response = match statusCode {
+                    StatusCode::Ok => res,
+                    _ => Response::new()
+                        .with_status(statusCode)
+                        .with_header(ContentLength(HTML_ERROR.len() as u64))
+                        .with_body(HTML_ERROR)
+                };
+                future::ok(response)
             });
         Box::new(stat_file)
     }
