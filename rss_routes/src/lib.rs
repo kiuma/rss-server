@@ -31,7 +31,8 @@ use futures::prelude::*;
 
 use hyper::header::ContentLength;
 use hyper::Error as HyperError;
-use hyper::server::{Request, Response, Service, StatusCode};
+use hyper::server::{Request, Response, Service};
+use hyper::{StatusCode};
 
 static PHRASE: &'static str = "Hello, World!";
 
@@ -52,13 +53,14 @@ impl RouterService {
 
     fn route(&self, req: Request) -> ResponseFuture {
         let stat_file = self.static_.call(req)
-        .map_err(|_err| {
-            Box::new(future::ok(
-              Response::new()
-              .with_status(StatusCode::NotFound)
-              .with_header(ContentLength(HTML404.len() as u64))
-              .with_body(HTML404)
-              ))}).flatten();
+            .or_else(|_err| {
+                future::ok(
+                  Response::new()
+                  .with_status(StatusCode::NotFound)
+                  .with_header(ContentLength(HTML404.len() as u64))
+                  .with_body(HTML404)
+                )
+            });
         Box::new(stat_file)
     }
 }
