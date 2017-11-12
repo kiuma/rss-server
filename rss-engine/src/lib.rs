@@ -38,24 +38,24 @@ pub type RssService = HyperService<
     Request = HyperRequest,
     Response = HyperResponse,
     Error = HyperError,
-    Future = ResponseFuture>;
+    Future = ResponseFuture> + Send + Sync;
 
 pub struct DefaultRssHttpServer {
     _config: Config,
-    _service: Box<RssService>,
+    _service: Arc<RssService>,
 }
 
 pub trait RssHttpServer {
     type Err;
     type Item;
-    fn new(config: Config, sevice: Box<RssService>) -> Self::Item;
+    fn new(config: Config, sevice: Arc<RssService>) -> Self::Item;
     fn start(&self) -> Result<(), Self::Err>;
 }
 
 impl RssHttpServer for DefaultRssHttpServer {
     type Err = errors::RssError;
     type Item = DefaultRssHttpServer;
-    fn new(config: Config, service: Box<RssService>) -> DefaultRssHttpServer {
+    fn new(config: Config, service: Arc<RssService>) -> DefaultRssHttpServer {
         DefaultRssHttpServer { _config: config, _service: service }
     }
 
@@ -72,8 +72,8 @@ impl RssHttpServer for DefaultRssHttpServer {
         // Clone the pool reference for the listener worker
         let pool_ref = pool.clone();
 
-        let service = Arc::new(self._service);
 
+        let service = self._service.clone();
         pool.next_worker().spawn(move |handle| {
             // Bind a TCP listener to our address
             let listener = TcpListener::bind(&addr, handle).unwrap();
@@ -81,10 +81,10 @@ impl RssHttpServer for DefaultRssHttpServer {
             listener
                 .incoming()
                 .for_each(move |(socket, addr)| {
+                    let inner_service = service.clone();
                     pool_ref.next_worker().spawn(move |handle| {
                         let http = Http::new();
-                        // let router = RouterService::new(&handle);
-                        http.bind_connection(&handle, socket, addr, service);
+                        http.bind_connection(&handle, socket, addr, inner_service);
                         // Do work with a client socket
                         Ok(())
                     });
@@ -94,7 +94,7 @@ impl RssHttpServer for DefaultRssHttpServer {
                 .map_err(|_| ()) // You might want to log these errors or something
         });
 
-        let j = join.join();
+        join.join();
         Ok(())
     }
 }
