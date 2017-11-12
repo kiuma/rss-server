@@ -1,0 +1,15 @@
+[package]
+name = "rss-engine"
+version = "0.1.0"
+authors = ["Andrea Chiumenti <achiumenti@red.software.systems>"]
+
+[dependencies]
+serde = "1.0.16"
+serde_json = "1.0.4"
+serde_derive = "1.0.16"
+tokio-core="0.1.10"
+tokio-pool = "0.1.0"
+hyper = "0.11.6"
+futures-await={ git = 'https://github.com/alexcrichton/futures-await' }
+
+#![feature(associated_type_defaults)]
