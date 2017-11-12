@@ -1,4 +1,4 @@
-#![feature(proc_macro, conservative_impl_trait, generators)]
+#![feature(proc_macro, conservative_impl_trait, generators, associated_type_defaults)]
 
 #[macro_use]
 extern crate route;
@@ -31,7 +31,7 @@ use futures::prelude::*;
 use hyper::header::ContentLength;
 use hyper::Error as HyperError;
 use hyper::server::{Request, Response, Service};
-use hyper::{StatusCode};
+use hyper::StatusCode;
 
 static PHRASE: &'static str = "Hello, World!";
 
@@ -42,8 +42,6 @@ pub struct RouterService {
 }
 
 impl RouterService {
-
-    
     pub fn new(handle: &Handle) -> RouterService {
         RouterService {
             static_: Static::new(handle, Path::new("/tmp")),
@@ -51,18 +49,21 @@ impl RouterService {
     }
 
     fn route(&self, req: Request) -> ResponseFuture {
-        let stat_file = self.static_.call(req)
-            .and_then(|res| {
-                let statusCode = res.status();
-                let response = match statusCode {
-                    StatusCode::Ok => res,
-                    _ => Response::new()
-                        .with_status(statusCode)
-                        .with_header(ContentLength(HTML_ERROR.len() as u64))
-                        .with_body(HTML_ERROR)
-                };
-                future::ok(response)
-            });
+        let stat_file =
+            self.static_.call(req)
+                .and_then(|res| {
+                    let statusCode = res.status();
+                    let statusRaw: u16 = statusCode.into();
+
+                    if statusRaw >= 400 {
+                        future::ok(Response::new()
+                            .with_status(statusCode)
+                            .with_header(ContentLength(HTML_ERROR.len() as u64))
+                            .with_body(HTML_ERROR))
+                    } else {
+                        future::ok(res)
+                    }
+                });
         Box::new(stat_file)
     }
 }
@@ -77,7 +78,7 @@ impl Service for RouterService {
     fn call(&self, req: Request) -> Self::Future {
         let route = self.route(req);
 
-//        Box::new(route)
+        //        Box::new(route)
         route
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "rss_routes"
+name = "rss-routes"
 version = "0.1.0"
 authors = ["Andrea Chiumenti <achiumenti@red.software.systems>"]
 
