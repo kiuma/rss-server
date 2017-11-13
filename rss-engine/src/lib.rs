@@ -1,6 +1,9 @@
 #![feature(proc_macro, conservative_impl_trait, generators, associated_type_defaults)]
 
 #[macro_use]
+extern crate log;
+
+#[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json;
@@ -48,15 +51,16 @@ pub struct DefaultRssHttpServer {
 pub trait RssHttpServer {
     type Err;
     type Item;
-    fn new(config: Config, sevice: Arc<RssService>) -> Self::Item;
+    fn new(config: Config, sevice: Box<RssService>) -> Self::Item;
     fn start(&self) -> Result<(), Self::Err>;
 }
 
 impl RssHttpServer for DefaultRssHttpServer {
     type Err = errors::RssError;
     type Item = DefaultRssHttpServer;
-    fn new(config: Config, service: Arc<RssService>) -> DefaultRssHttpServer {
-        DefaultRssHttpServer { _config: config, _service: service }
+    fn new(config: Config, service: Box<RssService>) -> DefaultRssHttpServer {
+        let inner_service = Arc::new(service);
+        DefaultRssHttpServer { _config: config, _service: inner_service }
     }
 
     fn start(&self) -> Result<(), Self::Err> {
@@ -91,7 +95,7 @@ impl RssHttpServer for DefaultRssHttpServer {
 
                     Ok(())
                 })
-                .map_err(|_| ()) // You might want to log these errors or something
+                .map_err(|err| error!("{}", err)) // You might want to log these errors or something
         });
 
         join.join();
