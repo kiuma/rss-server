@@ -28,6 +28,7 @@ use hyper::server::{Http, Request as HyperRequest, Response as HyperResponse, Se
 pub type ResponseFuture = Box<Future<Item=HyperResponse, Error=HyperError>>;
 
 mod errors;
+pub use errors::RssError;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -56,7 +57,7 @@ pub trait RssHttpServer {
 }
 
 impl RssHttpServer for DefaultRssHttpServer {
-    type Err = errors::RssError;
+    type Err = RssError;
     type Item = DefaultRssHttpServer;
     fn new(config: Config, service: Box<RssService>) -> DefaultRssHttpServer {
         let inner_service = Arc::new(service);
