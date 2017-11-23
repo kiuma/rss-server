@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Andrea Chiumenti <achiumenti@red.software.systems>"]
 
 [dependencies]
+log="0.3.8"
 tokio-core="0.1.10"
 hyper = "0.11.6"
 multipart-async = { git = 'https://github.com/abonander/multipart-async' }
