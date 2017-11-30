@@ -1,3 +1,6 @@
+//! This crate exposes an Hyper HTTP server with multithreading capabilities.
+//! It also defines common traits for services and configurables.
+
 #![feature(proc_macro, conservative_impl_trait, generators, associated_type_defaults)]
 
 #[macro_use]
@@ -22,5 +25,5 @@ mod config;
 pub use config::{RssConfigurable};
 
 mod server;
-pub use server::{RssHttpServer, DefaultRssHttpServer, ResponseFuture, RssService};
+pub use server::{RssHttpServer, DefaultRssHttpServer, RssService, ResponseFuture};
 

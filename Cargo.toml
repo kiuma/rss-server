@@ -18,7 +18,7 @@ serde_derive = "1.0.16"
 env_logger = "0.4.3"
 
 #rss_request_parser = { path = "rss_request_parser"}
-rss-routes = { path = "rss-routes"}
+rss-routes = { path = "rss-services"}
 rss-engine = { path = "rss-engine"}
 
 [workspace]

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use hyper::Error as HyperError;
 use hyper::server::{Http, Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 
-use config::{RssConfigurable};
+use config::RssConfigurable;
 
 use errors::RssError;
 use tokio_pool::TokioPool;
@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use toml;
 
 pub type ResponseFuture = Box<Future<Item=HyperResponse, Error=HyperError>>;
+
 pub type RssService = HyperService<
     Request=HyperRequest,
     Response=HyperResponse,
@@ -33,8 +34,12 @@ struct RssServerConfig {
     pub num_workers: usize,
 }
 
-pub struct DefaultRssHttpServer{
+pub struct DefaultRssHttpServer {
     _config: RssServerConfig,
+}
+
+struct DefaultRssHttpConfigurator {
+    path: PathBuf,
 }
 
 pub trait RssHttpServer {
@@ -52,37 +57,37 @@ bind_port = 8080
 num_workers = 4
 "#;
 
-impl DefaultRssHttpServer {
+impl DefaultRssHttpServer {}
+
+impl DefaultRssHttpConfigurator {
     pub(crate) fn get_conf_filename(path: PathBuf) -> PathBuf {
         let mut filename = PathBuf::new();
         filename.push(path.as_path());
         filename.push("http-server.toml");
         filename
     }
-    fn save(path: PathBuf) -> Result<String, RssError> {
-        let mut file = File::create(Self::get_conf_filename(path)).unwrap();
+    fn save(&self) -> Result<String, RssError> {
+        let mut file = File::create(Self::get_conf_filename(self.path.clone())).unwrap();
 
         file.write_all(HTTP_SERVER_CONFIG_STR.as_bytes())?;
         Ok(String::from(HTTP_SERVER_CONFIG_STR))
     }
 }
 
-impl RssConfigurable for DefaultRssHttpServer {
-    fn load(path: PathBuf) -> Result<String, RssError> {
-        let file = File::open(Self::get_conf_filename(path.clone()));
+impl RssConfigurable for DefaultRssHttpConfigurator {
+    fn load(&self) -> Result<String, RssError> {
+        let file = File::open(Self::get_conf_filename(self.path.clone()));
 
         match file {
             Ok(mut file) => {
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)?;
                 Ok(contents)
-            },
+            }
             Err(_) => {
-                Self::save(path)
+                self.save()
             }
         }
-
-
     }
 }
 
@@ -90,9 +95,10 @@ impl RssHttpServer for DefaultRssHttpServer {
     type Err = RssError;
     type Item = DefaultRssHttpServer;
     fn new(path: PathBuf) -> DefaultRssHttpServer {
-        let content = Self::load(path).unwrap();
+        let config = DefaultRssHttpConfigurator { path };
+        let content = config.load().unwrap();
         let server_config: RssServerConfig = toml::from_str(content.as_str()).unwrap();
-        DefaultRssHttpServer { _config:  server_config }
+        DefaultRssHttpServer { _config: server_config }
     }
 
     fn start(&self, service: Box<RssService>) -> Result<(), Self::Err> {
@@ -144,6 +150,7 @@ mod tests {
 
     use std::path::PathBuf;
     use std::fs::remove_file;
+
     fn get_conf_dir() -> PathBuf {
         [env::var("CARGO_MANIFEST_DIR").unwrap().as_str(),
             "tests",
@@ -169,5 +176,4 @@ mod tests {
         let expected = 4;
         assert_eq!(config.num_workers, expected, "Expected {} workers, but got {}", expected, config.num_workers);
     }
-
 }
