@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn writes_and_load_config() {
         let conf_dir = get_conf_dir();
-        let filename = DefaultRssHttpServer::get_conf_filename(conf_dir.clone());
+        let filename = DefaultRssHttpConfigurator::get_conf_filename(conf_dir.clone());
         if filename.exists() {
             remove_file(filename.clone()).unwrap();
         }
