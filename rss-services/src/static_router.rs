@@ -1,4 +1,4 @@
-use tokio_core::reactor::{Core, Handle};
+use tokio_core::reactor::{Handle};
 use std::path::PathBuf;
 //use hyper_staticfile::Static;
 //
