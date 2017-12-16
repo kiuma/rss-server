@@ -22,7 +22,7 @@ use toml;
 pub type ResponseFuture = Box<Future<Item=HyperResponse, Error=HyperError>>;
 
 pub type RssService = HyperService<
-    Request=HyperRequest,
+    Request= HyperRequest,
     Response=HyperResponse,
     Error=HyperError,
     Future=ResponseFuture> + Send + Sync;

@@ -3,10 +3,11 @@ use hyper;
 use hyper::server::{Request as HyperRequest, Response as HyperResponse};
 use errors::HttpError;
 use futures::future;
-use futures::prelude::*;
+// use futures::prelude::*;
 use futures::future::{ok, Future, FutureResult, Loop};
 use std::io::Error;
 use hyper::StatusCode;
+use hyper::Error as HyperError;
 
 use std::rc::Rc;
 
@@ -64,7 +65,7 @@ impl RouteResolver {
 
     fn next(&mut self, status_code: StatusCode) -> FutureResult<(&mut Self, bool), Error> {
         let mut current_route: usize = 0;
-        let mut done = false;
+
         match self.ix {
             Some(ix) => {
                 current_route = usize::max(ix + 1, self.routes.len());
@@ -80,7 +81,6 @@ impl RouteResolver {
             StatusCode::NotFound => current_route + 1 >= self.routes.len(),
             _ => true,
         };
-
         ok((
             self,
             done,
@@ -114,17 +114,17 @@ impl DefaultRootService {
         }
     }
 
-    fn dispatch(&self, req: &HyperRequest) -> ResponseFuture{
-        let mut route_resolver = RouteResolver::new(self.routes.clone());
-        let dispatch =
-            future::loop_fn(&mut route_resolver, |mut route_resolver| {
-                route_resolver.route(req)
+    fn dispatch<'a>(&'a self, route_resolver: &'a mut RouteResolver, req: HyperRequest) -> Box<Future<Item=HyperResponse, Error=HyperError> + 'a> {
+        // let route_resolver = RouteResolver::new(self.routes.clone());
+Box::new(
+            future::loop_fn(route_resolver, move |route_resolver| {
+                route_resolver.route(&req)
                     .and_then(|(route_resolver, status_code)| {
                             route_resolver.next(status_code)
                                 .and_then(|(route_resolver, done)| {
                                     let router = route_resolver.get_router();
                                     match router {
-                                        Some(router) => {
+                                        Some(_) => {
                                             if done {
                                                 Ok(Loop::Break(route_resolver))
                                             } else {
@@ -135,24 +135,32 @@ impl DefaultRootService {
                                     }
                                 })
                     })
-            });
-        let dispatch_result =
-            dispatch.and_then(|route_resolver | {
-            let router = route_resolver.get_router();
-            match router {
-//                Some(router) => {
-                Some(_) => {
-//                    router.route(req)
-                    let e_handler = self.error_handler.clone();
-                    e_handler.call(*req);
-                },
-                _ => {
-                    let e_handler = self.error_handler.clone();
-                    e_handler.call(*req);
-                },
-            }
-        });
-        Box::new(dispatch_result)
+            })
+            .then(move |route_resolver | {
+                match route_resolver {
+                    Ok(route_resolver) => {
+                        let router = route_resolver.get_router();
+                        match router {
+            //                Some(router) => {
+                            Some(_) => {
+                                let e_handler = self.error_handler.clone();
+                                let req = req.to_owned();
+                                e_handler.call(req)
+                            },
+                            _ => {
+                                let e_handler = self.error_handler.clone();
+                                e_handler.call(req)
+                            },
+                        }
+                    },
+                    Err(_) => {
+                        let e_handler = self.error_handler.clone();
+                        e_handler.call(req)
+                    }
+                }
+
+        })
+    )
     }
 }
 
@@ -163,7 +171,7 @@ impl hyper::server::Service for DefaultRootService {
     type Future = ResponseFuture;
 
 
-    fn call(&self, req: Self::Request) -> Self::Future {
+    fn call(&self, _req: Self::Request) -> Self::Future {
         //let route = &self.select_route(&req);
         //        for route in &self.routes {
         //            let service_result = await!(route.route(&req));
