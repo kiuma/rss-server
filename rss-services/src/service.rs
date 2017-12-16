@@ -14,7 +14,7 @@ use std::rc::Rc;
 #[macro_export]
 macro_rules! rss_service {
 ($struct:tt, $req:tt, $body:block) =>
-(impl HyperService for $struct {
+(impl hyper::server::Service for $struct {
     type Request = HyperRequest;
     type Response = HyperResponse;
     type Error = hyper::Error;
@@ -27,7 +27,7 @@ macro_rules! rss_service {
 pub type RouteFuture = Box<Future<Item = Rc<RssService>, Error = HttpError>>;
 
 pub trait Router {
-    fn route(&self, req: &HyperRequest) -> FutureResult<StatusCode, Error>;
+    fn route(&self, req: HyperRequest) -> FutureResult<(StatusCode, HyperRequest), Error>;
 }
 
 struct RouteResolver {
@@ -45,13 +45,15 @@ impl RouteResolver {
 
     fn route<'a>(
         &'a mut self,
-        req: &HyperRequest,
-    ) -> Box<Future<Item = (&'a mut Self, StatusCode), Error = Error> + 'a> {
+        req: HyperRequest,
+    ) -> Box<Future<Item = (&'a mut Self, StatusCode, HyperRequest), Error = Error> + 'a> {
         let router = self.get_router();
 
         match router {
-            Some(router) => Box::new(router.route(req).map(|status_code| (self, status_code))),
-            _ => Box::new(ok((self, StatusCode::NotFound))),
+            Some(router) => Box::new(router.route(req).map(|(status_code, req)| {
+                (self, status_code, req)
+            })),
+            _ => Box::new(ok((self, StatusCode::NotFound, req))),
         }
     }
 
@@ -108,31 +110,30 @@ impl DefaultRootService {
         route_resolver: &'a mut RouteResolver,
         req: HyperRequest,
     ) -> Box<Future<Item = HyperResponse, Error = HyperError> + 'a> {
-        // let route_resolver = RouteResolver::new(self.routes.clone());
         Box::new(
-            future::loop_fn(route_resolver, move |route_resolver| {
-                route_resolver.route(&req).and_then(
-                    |(route_resolver, status_code)| {
-                        route_resolver.next(status_code).and_then(
-                            |(route_resolver, done)| {
-                                let router = route_resolver.get_router();
-                                match router {
-                                    Some(_) => {
-                                        if done {
-                                            Ok(Loop::Break(route_resolver))
-                                        } else {
-                                            Ok(Loop::Continue(route_resolver))
-                                        }
+            future::loop_fn((route_resolver, req), |(route_resolver, req)| {
+                route_resolver.route(req).and_then(|(route_resolver,
+                  status_code,
+                  req)| {
+                    route_resolver.next(status_code).and_then(
+                        |(route_resolver, done)| {
+                            let router = route_resolver.get_router();
+                            match router {
+                                Some(_) => {
+                                    if done {
+                                        Ok(Loop::Break((route_resolver, req)))
+                                    } else {
+                                        Ok(Loop::Continue((route_resolver, req)))
                                     }
-                                    _ => Ok(Loop::Break(route_resolver)),
                                 }
-                            },
-                        )
-                    },
-                )
-            }).then(move |route_resolver| {
-                match route_resolver {
-                    Ok(route_resolver) => {
+                                _ => Ok(Loop::Break((route_resolver, req))),
+                            }
+                        },
+                    )
+                })
+            }).then(move |route_resolver_and_req| {
+                match route_resolver_and_req {
+                    Ok((route_resolver, req)) => {
                         let router = route_resolver.get_router();
                         match router {
                             //                Some(router) => {
@@ -147,11 +148,11 @@ impl DefaultRootService {
                         }
                     }
                     Err(_) => {
-                        let e_handler = self.error_handler.clone();
-                        e_handler.call(req)
+                        //                        let e_handler = self.error_handler.clone();
+                        //                        e_handler.call(req)
+                        panic!("This sholuld never happen")
                     }
                 }
-
             }),
         )
     }
@@ -164,13 +165,9 @@ impl hyper::server::Service for DefaultRootService {
     type Future = ResponseFuture;
 
 
-    fn call(&self, _req: Self::Request) -> Self::Future {
-        //let route = &self.select_route(&req);
-        //        for route in &self.routes {
-        //            let service_result = await!(route.route(&req));
-        ////            dispatch item on Ok...., continue looping on Error
-        //        }
-        Box::new(future::ok(HyperResponse::new()))
+    fn call(&self, req: Self::Request) -> Self::Future {
+        let route_resolver = RouteResolver::new(self.routes.clone());
+        self.dispatch(&mut route_resolver, req)
     }
 }
 
@@ -184,39 +181,38 @@ impl hyper::server::Service for DefaultRootService {
 //========================== TESTS =====================================================//
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use HyperService;
-    use futures::future;
-    use futures::prelude::*;
-
-    static HTML: &'static str = "<!DOCTYPE html>
-<html>
-    <head>
-        <meta charset=\"UTF-8\">
-        <title>Home</title>
-    </head>
-    <body>
-        <h1>This is home!</h1>
-    </body>
-</html>";
-
-    #[test]
-    fn test_rss_service_macro_def() {
-        pub struct FooService;
-        rss_service!(FooService, _, {
-    Box::new(future::ok(
-    Self::Response::new()
-    .with_header(hyper::header::ContentLength(HTML.len() as u64))
-    .with_body(HTML),
-    ))
-    });
-        let service = FooService {};
-        let req = HyperRequest::new(hyper::Method::Get, hyper::Uri::default());
-        let resp: hyper::Response = service.call(req).wait().unwrap();
-
-        assert_eq!(
-            resp.headers().get(),
-            Some(&hyper::header::ContentLength(HTML.len() as u64))
-        )
-    }
+    //     use super::*;
+    //     use futures::future;
+    //     use futures::prelude::*;
+    //
+    //     static HTML: &'static str = "<!DOCTYPE html>
+    // <html>
+    //     <head>
+    //         <meta charset=\"UTF-8\">
+    //         <title>Home</title>
+    //     </head>
+    //     <body>
+    //         <h1>This is home!</h1>
+    //     </body>
+    // </html>";
+    //
+    //     #[test]
+    //     fn test_rss_service_macro_def() {
+    //         pub struct FooService;
+    //         rss_service!(FooService, _, {
+    //     Box::new(future::ok(
+    //     Self::Response::new()
+    //     .with_header(hyper::header::ContentLength(HTML.len() as u64))
+    //     .with_body(HTML),
+    //     ))
+    //     });
+    //         let service = FooService {};
+    //         let req = HyperRequest::new(hyper::Method::Get, hyper::Uri::default());
+    //         let resp: hyper::Response = service.call(req).wait().unwrap();
+    //
+    //         assert_eq!(
+    //             resp.headers().get(),
+    //             Some(&hyper::header::ContentLength(HTML.len() as u64))
+    //         )
+    //     }
 }
