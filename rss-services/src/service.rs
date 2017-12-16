@@ -24,7 +24,7 @@ macro_rules! rss_service {
     fn call(&self, $req: Self::Request) -> Self::Future $body
 })}
 
-pub type RouteFuture = Box<Future<Item=Rc<RssService>, Error=HttpError>>;
+pub type RouteFuture = Box<Future<Item = Rc<RssService>, Error = HttpError>>;
 
 pub trait Router {
     fn route(&self, req: &HyperRequest) -> FutureResult<StatusCode, Error>;
@@ -43,23 +43,15 @@ impl RouteResolver {
         }
     }
 
-    fn route<'a>(&'a mut self, req: &HyperRequest) -> Box<Future<Item=(&'a mut Self, StatusCode), Error=Error> + 'a> {
+    fn route<'a>(
+        &'a mut self,
+        req: &HyperRequest,
+    ) -> Box<Future<Item = (&'a mut Self, StatusCode), Error = Error> + 'a> {
         let router = self.get_router();
 
         match router {
-            Some(router) => {
-                Box::new(
-                    router.route(req)
-                        .map(|status_code| {
-                            (self, status_code)
-                        }))
-            }
-            _ => {
-                Box::new(ok((
-                    self,
-                    StatusCode::NotFound,
-                )))
-            }
+            Some(router) => Box::new(router.route(req).map(|status_code| (self, status_code))),
+            _ => Box::new(ok((self, StatusCode::NotFound))),
         }
     }
 
@@ -81,10 +73,7 @@ impl RouteResolver {
             StatusCode::NotFound => current_route + 1 >= self.routes.len(),
             _ => true,
         };
-        ok((
-            self,
-            done,
-        ))
+        ok((self, done))
     }
 
     fn get_router(&self) -> Option<Rc<Router>> {
@@ -114,53 +103,57 @@ impl DefaultRootService {
         }
     }
 
-    fn dispatch<'a>(&'a self, route_resolver: &'a mut RouteResolver, req: HyperRequest) -> Box<Future<Item=HyperResponse, Error=HyperError> + 'a> {
+    fn dispatch<'a>(
+        &'a self,
+        route_resolver: &'a mut RouteResolver,
+        req: HyperRequest,
+    ) -> Box<Future<Item = HyperResponse, Error = HyperError> + 'a> {
         // let route_resolver = RouteResolver::new(self.routes.clone());
-Box::new(
+        Box::new(
             future::loop_fn(route_resolver, move |route_resolver| {
-                route_resolver.route(&req)
-                    .and_then(|(route_resolver, status_code)| {
-                            route_resolver.next(status_code)
-                                .and_then(|(route_resolver, done)| {
-                                    let router = route_resolver.get_router();
-                                    match router {
-                                        Some(_) => {
-                                            if done {
-                                                Ok(Loop::Break(route_resolver))
-                                            } else {
-                                                Ok(Loop::Continue(route_resolver))
-                                            }
-                                        },
-                                        _ => Ok(Loop::Break(route_resolver)),
+                route_resolver.route(&req).and_then(
+                    |(route_resolver, status_code)| {
+                        route_resolver.next(status_code).and_then(
+                            |(route_resolver, done)| {
+                                let router = route_resolver.get_router();
+                                match router {
+                                    Some(_) => {
+                                        if done {
+                                            Ok(Loop::Break(route_resolver))
+                                        } else {
+                                            Ok(Loop::Continue(route_resolver))
+                                        }
                                     }
-                                })
-                    })
-            })
-            .then(move |route_resolver | {
+                                    _ => Ok(Loop::Break(route_resolver)),
+                                }
+                            },
+                        )
+                    },
+                )
+            }).then(move |route_resolver| {
                 match route_resolver {
                     Ok(route_resolver) => {
                         let router = route_resolver.get_router();
                         match router {
-            //                Some(router) => {
+                            //                Some(router) => {
                             Some(_) => {
                                 let e_handler = self.error_handler.clone();
-                                let req = req.to_owned();
                                 e_handler.call(req)
-                            },
+                            }
                             _ => {
                                 let e_handler = self.error_handler.clone();
                                 e_handler.call(req)
-                            },
+                            }
                         }
-                    },
+                    }
                     Err(_) => {
                         let e_handler = self.error_handler.clone();
                         e_handler.call(req)
                     }
                 }
 
-        })
-    )
+            }),
+        )
     }
 }
 
