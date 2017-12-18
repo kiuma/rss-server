@@ -48,7 +48,6 @@ impl RouteResolver {
         req: HyperRequest,
     ) -> Box<Future<Item = (Self, StatusCode, HyperRequest), Error = Error>> {
         let router = self.get_router();
-
         match router {
             Some(router) => Box::new(router.route(req).map(|(status_code, req)| {
                 (self, status_code, req)
@@ -57,7 +56,7 @@ impl RouteResolver {
         }
     }
 
-    fn next(self, status_code: StatusCode) -> FutureResult<(Self, bool), Error> {
+    fn next(mut self, status_code: StatusCode) -> FutureResult<(Self, bool), Error> {
         let mut current_route: usize = 0;
 
         match self.ix {
@@ -114,6 +113,7 @@ impl hyper::server::Service for DefaultRootService {
 
     fn call(&self, req: Self::Request) -> Self::Future {
         let mut route_resolver = RouteResolver::new(self.routes.clone());
+        let e_handler = self.error_handler.clone();
         Box::new(
             future::loop_fn((route_resolver, req), |(route_resolver, req)| {
 
@@ -136,20 +136,14 @@ impl hyper::server::Service for DefaultRootService {
                         },
                     )
                 })
-            }).then(|route_resolver_and_req| {
+            }).then(move |route_resolver_and_req| {
                 match route_resolver_and_req {
                     Ok((route_resolver, req)) => {
                         let router = route_resolver.get_router();
                         match router {
                             //                Some(router) => {
-                            Some(_) => {
-                                let e_handler = self.error_handler.clone();
-                                e_handler.call(req)
-                            }
-                            _ => {
-                                let e_handler = self.error_handler.clone();
-                                e_handler.call(req)
-                            }
+                            Some(_) => e_handler.call(req),
+                            _ => e_handler.call(req),
                         }
                     }
                     Err(_) => panic!("This sholuld never happen"),
