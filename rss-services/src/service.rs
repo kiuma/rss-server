@@ -93,7 +93,7 @@ impl RouteResolver {
 }
 
 struct DefaultRootService {
-    routes: Rc<Vec<Rc<Router>>>,
+    routes: Rc<Vec<Rc<Router + 'static>>>,
     error_handler: Rc<RssService>,
 }
 
@@ -109,14 +109,14 @@ impl DefaultRootService {
 impl hyper::server::Service for DefaultRootService {
     type Request = HyperRequest;
     type Response = HyperResponse;
-    type Error = hyper::Error;
-    type Future = ResponseFuture;
-
+    type Error = HyperError;
+    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         let mut route_resolver = RouteResolver::new(self.routes.clone());
         Box::new(
             future::loop_fn((&mut route_resolver, req), |(route_resolver, req)| {
+
                 route_resolver.route(req).and_then(|(route_resolver,
                   status_code,
                   req)| {
@@ -136,7 +136,7 @@ impl hyper::server::Service for DefaultRootService {
                         },
                     )
                 })
-            }).then(move |route_resolver_and_req| {
+            }).then(|route_resolver_and_req| {
                 match route_resolver_and_req {
                     Ok((route_resolver, req)) => {
                         let router = route_resolver.get_router();
@@ -152,11 +152,7 @@ impl hyper::server::Service for DefaultRootService {
                             }
                         }
                     }
-                    Err(_) => {
-                        //                        let e_handler = self.error_handler.clone();
-                        //                        e_handler.call(req)
-                        panic!("This sholuld never happen")
-                    }
+                    Err(_) => panic!("This sholuld never happen"),
                 }
             }),
         )
