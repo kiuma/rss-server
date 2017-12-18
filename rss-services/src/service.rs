@@ -104,11 +104,16 @@ impl DefaultRootService {
             error_handler: Rc::new(error_handler),
         }
     }
+}
 
-    fn dispatch<'a>(
-        &'a self,
-        req: HyperRequest,
-    ) -> Box<Future<Item = HyperResponse, Error = HyperError> + 'a> {
+impl hyper::server::Service for DefaultRootService {
+    type Request = HyperRequest;
+    type Response = HyperResponse;
+    type Error = hyper::Error;
+    type Future = ResponseFuture;
+
+
+    fn call(&self, req: Self::Request) -> Self::Future {
         let mut route_resolver = RouteResolver::new(self.routes.clone());
         Box::new(
             future::loop_fn((&mut route_resolver, req), |(route_resolver, req)| {
@@ -155,18 +160,6 @@ impl DefaultRootService {
                 }
             }),
         )
-    }
-}
-
-impl hyper::server::Service for DefaultRootService {
-    type Request = HyperRequest;
-    type Response = HyperResponse;
-    type Error = hyper::Error;
-    type Future = ResponseFuture;
-
-
-    fn call(&self, req: Self::Request) -> Self::Future {
-        self.dispatch(req)
     }
 }
 
