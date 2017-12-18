@@ -1,7 +1,6 @@
 use rss_engine::{ResponseFuture, RssService};
 use hyper;
 use hyper::server::{Request as HyperRequest, Response as HyperResponse};
-use errors::HttpError;
 use futures::future;
 // use futures::prelude::*;
 use futures::future::{ok, Future, FutureResult, Loop};
@@ -24,7 +23,6 @@ macro_rules! rss_service {
     fn call(&self, $req: Self::Request) -> Self::Future $body
 })}
 
-pub type RouteFuture = Box<Future<Item = Rc<RssService>, Error = HttpError>>;
 
 pub trait Router {
     fn route(&self, req: HyperRequest) -> FutureResult<(StatusCode, HyperRequest), Error>;
@@ -44,7 +42,7 @@ impl RouteResolver {
     }
 
     fn route(
-        mut self,
+        self,
         req: HyperRequest,
     ) -> Box<Future<Item = (Self, StatusCode, HyperRequest), Error = Error>> {
         let router = &mut self.get_router();
@@ -91,7 +89,7 @@ impl RouteResolver {
     }
 }
 
-struct DefaultRootService {
+pub struct DefaultRootService {
     routes: Rc<Vec<Rc<Router + 'static>>>,
     error_handler: Rc<RssService>,
 }
@@ -109,10 +107,10 @@ impl hyper::server::Service for DefaultRootService {
     type Request = HyperRequest;
     type Response = HyperResponse;
     type Error = HyperError;
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+    type Future = ResponseFuture;
 
     fn call(&self, req: Self::Request) -> Self::Future {
-        let mut route_resolver = RouteResolver::new(self.routes.clone());
+        let route_resolver = RouteResolver::new(self.routes.clone());
         let e_handler = self.error_handler.clone();
         Box::new(
             future::loop_fn((route_resolver, req), |(route_resolver, req)| {
