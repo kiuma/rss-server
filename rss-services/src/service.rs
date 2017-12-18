@@ -44,12 +44,12 @@ impl RouteResolver {
     }
 
     fn route(
-        self,
+        mut self,
         req: HyperRequest,
     ) -> Box<Future<Item = (Self, StatusCode, HyperRequest), Error = Error>> {
-        let router = self.get_router();
-        match router {
-            Some(router) => Box::new(router.route(req).map(|(status_code, req)| {
+        let router = &mut self.get_router();
+        match *router {
+            Some(ref mut router) => Box::new(router.route(req).map(|(status_code, req)| {
                 (self, status_code, req)
             })),
             _ => Box::new(ok((self, StatusCode::NotFound, req))),
@@ -77,7 +77,7 @@ impl RouteResolver {
         ok((self, done))
     }
 
-    fn get_router(self) -> Option<Rc<Router>> {
+    fn get_router(&self) -> Option<Rc<Router>> {
         match self.ix {
             Some(ix) => {
                 let route = self.routes.get(ix);
@@ -122,6 +122,7 @@ impl hyper::server::Service for DefaultRootService {
                   req)| {
                     route_resolver.next(status_code).and_then(
                         |(route_resolver, done)| {
+
                             let router = route_resolver.get_router();
                             match router {
                                 Some(_) => {
