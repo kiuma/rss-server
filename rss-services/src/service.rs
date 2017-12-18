@@ -115,7 +115,7 @@ impl hyper::server::Service for DefaultRootService {
     fn call(&self, req: Self::Request) -> Self::Future {
         let mut route_resolver = RouteResolver::new(self.routes.clone());
         Box::new(
-            future::loop_fn((&mut route_resolver, req), |(route_resolver, req)| {
+            future::loop_fn((route_resolver, req), |(route_resolver, req)| {
 
                 route_resolver.route(req).and_then(|(route_resolver,
                   status_code,
