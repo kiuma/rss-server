@@ -43,10 +43,10 @@ impl RouteResolver {
         }
     }
 
-    fn route<'a>(
-        &'a mut self,
+    fn route(
+        self,
         req: HyperRequest,
-    ) -> Box<Future<Item = (&'a mut Self, StatusCode, HyperRequest), Error = Error> + 'a> {
+    ) -> Box<Future<Item = (Self, StatusCode, HyperRequest), Error = Error>> {
         let router = self.get_router();
 
         match router {
@@ -57,7 +57,7 @@ impl RouteResolver {
         }
     }
 
-    fn next(&mut self, status_code: StatusCode) -> FutureResult<(&mut Self, bool), Error> {
+    fn next(self, status_code: StatusCode) -> FutureResult<(Self, bool), Error> {
         let mut current_route: usize = 0;
 
         match self.ix {
@@ -78,7 +78,7 @@ impl RouteResolver {
         ok((self, done))
     }
 
-    fn get_router(&self) -> Option<Rc<Router>> {
+    fn get_router(self) -> Option<Rc<Router>> {
         match self.ix {
             Some(ix) => {
                 let route = self.routes.get(ix);
