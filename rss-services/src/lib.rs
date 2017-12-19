@@ -9,11 +9,7 @@ extern crate hyper_staticfile;
 extern crate rss_engine;
 extern crate hyper;
 
-mod errors;
-mod service;
-
-mod static_router;
-
+pub mod service;
 
 #[cfg(test)]
 mod tests {

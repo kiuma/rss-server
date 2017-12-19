@@ -1,8 +1,7 @@
 use rss_engine::{ResponseFuture, RssService};
 use hyper;
-use hyper::server::{Request as HyperRequest, Response as HyperResponse};
+use hyper::server::{Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 use futures::future;
-// use futures::prelude::*;
 use futures::future::{ok, Future, FutureResult, Loop};
 use std::io::Error;
 use hyper::StatusCode;
@@ -13,10 +12,10 @@ use std::rc::Rc;
 #[macro_export]
 macro_rules! rss_service {
 ($struct:tt, $req:tt, $body:block) =>
-(impl hyper::server::Service for $struct {
+(impl HyperService for $struct {
     type Request = HyperRequest;
     type Response = HyperResponse;
-    type Error = hyper::Error;
+    type Error = HyperError;
 
     type Future = ResponseFuture;
 
@@ -24,12 +23,13 @@ macro_rules! rss_service {
 })}
 
 
-pub trait Router {
+pub trait Router: HyperService<Request = HyperRequest, Response = HyperResponse,Error = HyperError, Future = ResponseFuture> {
+
     fn route(&self, req: HyperRequest) -> FutureResult<(StatusCode, HyperRequest), Error>;
 }
 
 struct RouteResolver {
-    routes: Rc<Vec<Rc<Router>>>,
+    routes: Rc<Vec<Rc<Router<Request = HyperRequest, Response = HyperResponse,Error = HyperError, Future = ResponseFuture> >>>,
     ix: Option<usize>,
 }
 
@@ -90,7 +90,7 @@ impl RouteResolver {
 }
 
 pub struct DefaultRootService {
-    routes: Rc<Vec<Rc<Router + 'static>>>,
+    routes: Rc<Vec<Rc<Router>>>,
     error_handler: Rc<RssService>,
 }
 
@@ -140,8 +140,8 @@ impl hyper::server::Service for DefaultRootService {
                     Ok((route_resolver, req)) => {
                         let router = route_resolver.get_router();
                         match router {
-                            //                Some(router) => {
-                            Some(_) => e_handler.call(req),
+                            Some(router) => router.call(req)
+                            // Some(_) => e_handler.call(req),
                             _ => e_handler.call(req),
                         }
                     }
