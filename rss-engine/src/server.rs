@@ -5,7 +5,8 @@ use tokio_core::net::TcpListener;
 use std::sync::Arc;
 
 use hyper::Error as HyperError;
-use hyper::server::{Http, Request as HyperRequest, Response as HyperResponse, Service as HyperService};
+use hyper::server::{Http, Request as HyperRequest, Response as HyperResponse,
+                    Service as HyperService};
 
 use config::RssConfigurable;
 
@@ -19,13 +20,16 @@ use std::path::PathBuf;
 
 use toml;
 
-pub type ResponseFuture = Box<Future<Item=HyperResponse, Error=HyperError>>;
+pub type ResponseFuture = Box<Future<Item = HyperResponse, Error = HyperError>>;
 
 pub type RssService = HyperService<
-    Request= HyperRequest,
-    Response=HyperResponse,
-    Error=HyperError,
-    Future=ResponseFuture> + Send + Sync;
+    Request = HyperRequest,
+    Response = HyperResponse,
+    Error = HyperError,
+    Future = ResponseFuture,
+>
+                          + Send
+                          + Sync;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RssServerConfig {
@@ -84,9 +88,7 @@ impl RssConfigurable for DefaultRssHttpConfigurator {
                 file.read_to_string(&mut contents)?;
                 Ok(contents)
             }
-            Err(_) => {
-                self.save()
-            }
+            Err(_) => self.save(),
         }
     }
 }
@@ -152,9 +154,12 @@ mod tests {
     use std::fs::remove_file;
 
     fn get_conf_dir() -> PathBuf {
-        [env::var("CARGO_MANIFEST_DIR").unwrap().as_str(),
+        [
+            env::var("CARGO_MANIFEST_DIR").unwrap().as_str(),
             "tests",
-            "out"].iter().collect()
+            "out",
+        ].iter()
+            .collect()
     }
 
 
@@ -170,10 +175,28 @@ mod tests {
         assert!(filename.exists(), "{:?} does not exist", filename);
         let config = server._config;
         let expected = "127.0.0.1";
-        assert_eq!(config.bind_address, expected, "Expected bind address {}, but got {}", expected, config.bind_address);
+        assert_eq!(
+            config.bind_address,
+            expected,
+            "Expected bind address {}, but got {}",
+            expected,
+            config.bind_address
+        );
         let expected = 8080;
-        assert_eq!(config.bind_port, expected, "Expected bind port {}, but got {}", expected, config.bind_port);
+        assert_eq!(
+            config.bind_port,
+            expected,
+            "Expected bind port {}, but got {}",
+            expected,
+            config.bind_port
+        );
         let expected = 4;
-        assert_eq!(config.num_workers, expected, "Expected {} workers, but got {}", expected, config.num_workers);
+        assert_eq!(
+            config.num_workers,
+            expected,
+            "Expected {} workers, but got {}",
+            expected,
+            config.num_workers
+        );
     }
 }
