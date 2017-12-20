@@ -28,8 +28,22 @@ macro_rules! rss_service {
 
 
 ///A Router is a trait meant to be used 
-pub trait Router: HyperService {
-    fn route(&self, req: HyperRequest) -> FutureResult<(StatusCode, Self::Request), Error>;
+pub trait Router {
+    /// Requests handled by the service.
+    type Request;
+
+    /// Responses given by the service.
+    type Response;
+
+    /// Errors produced by the service.
+    type Error;
+
+    /// The future response value.
+    type Future: Future<Item = Self::Response, Error = Self::Error>;
+
+    /// Process the request and return the response asynchronously.
+    fn dispatch(&self, req: Self::Request, status_code: StatusCode) -> Self::Future;
+    fn route(&self, req: &HyperRequest) -> FutureResult<StatusCode, ()>;
 }
 
 type RouterService = Router<
@@ -54,18 +68,23 @@ impl RouteResolver {
 
     fn route(
         self,
-        req: HyperRequest,
-    ) -> Box<Future<Item = (Self, StatusCode, HyperRequest), Error = Error>> {
+        req: &HyperRequest,
+    ) -> Box<Future<Item = (Self, StatusCode), Error = Error>> {
         let router = &mut self.get_router();
         match *router {
-            Some(ref mut router) => Box::new(router.route(req).map(|(status_code, req)| {
-                (self, status_code, req)
-            })),
-            _ => Box::new(ok((self, StatusCode::NotFound, req))),
+            Some(ref mut router) => Box::new(router.route(&req)
+                .then(|status_code| {
+                    let status_code = match status_code {
+                        Ok(status_code) => status_code,
+                        Err(_) => StatusCode::InternalServerError
+                    };
+                    ok((self, status_code))
+                })),
+            _ => Box::new(ok((self, StatusCode::NotFound))),
         }
     }
 
-    fn next(mut self, status_code: StatusCode) -> FutureResult<(Self, bool), Error> {
+    fn next(mut self, status_code: StatusCode) -> FutureResult<(Self, StatusCode,  bool), Error> {
         let mut current_route: usize = 0;
 
         match self.ix {
@@ -83,7 +102,7 @@ impl RouteResolver {
             StatusCode::NotFound => current_route + 1 >= self.routers.len(),
             _ => true,
         };
-        ok((self, done))
+        ok((self, status_code, done))
     }
 
     fn get_router(&self) -> Option<Rc<RouterService>> {
@@ -107,17 +126,17 @@ impl RouteResolver {
 /// Routers are special services that have a route method. This method
 pub struct RootService {
     routers: Rc<Vec<Rc<RouterService>>>,
-    error_handler: Rc<RssService>,
+    error_handler: Rc<RouterService>,
 }
 
 impl RootService {
     pub fn new(
         routers: Vec<Rc<RouterService>>,
-        error_handler: Box<RssService>,
+        error_handler: Rc<RouterService>,
     ) -> RootService {
         RootService {
             routers: Rc::new(routers),
-            error_handler: Rc::new(error_handler),
+            error_handler,
         }
     }
 }
@@ -131,35 +150,36 @@ impl hyper::server::Service for RootService {
     fn call(&self, req: Self::Request) -> Self::Future {
         let route_resolver = RouteResolver::new(self.routers.clone());
         let e_handler = self.error_handler.clone();
+        let status_code = StatusCode::NotFound;
         Box::new(
-            future::loop_fn((route_resolver, req), |(route_resolver, req)| {
-
+            future::loop_fn((route_resolver, req, status_code), |(route_resolver, req, status_code)| {
                 route_resolver
-                    .route(req)
-                    .and_then(|(route_resolver, status_code, req)| {
+                    .route(&req)
+                    .and_then(|(route_resolver, status_code)| {
                         route_resolver.next(status_code).and_then(
-                            |(route_resolver, done)| {
+                            |(route_resolver, status_code, done)| {
 
                                 let router = route_resolver.get_router();
                                 match router {
                                     Some(_) => {
                                         if done {
-                                            Ok(Loop::Break((route_resolver, req)))
+                                            Ok(Loop::Break((route_resolver, req, status_code)))
                                         } else {
-                                            Ok(Loop::Continue((route_resolver, req)))
+                                            Ok(Loop::Continue((route_resolver, req, status_code)))
                                         }
                                     }
-                                    _ => Ok(Loop::Break((route_resolver, req))),
+                                    _ => Ok(Loop::Break((route_resolver, req, status_code))),
                                 }
                             },
                         )
                     })
-            }).then(move |route_resolver_and_req: Result<(RouteResolver, HyperRequest),Error>| match route_resolver_and_req {
-                Ok((route_resolver, req)) => {
+            }).then(move |route_resolver_and_req: Result<(RouteResolver, HyperRequest, StatusCode) ,Error>|
+                match route_resolver_and_req {
+                Ok((route_resolver, req, status_code)) => {
                     let router = route_resolver.get_router();
                     match router {
-                        Some(router) => router.call(req),
-                        _ => e_handler.call(req),
+                        Some(router) => router.dispatch(req, status_code),
+                        _ => e_handler.dispatch(req, status_code),
                     }
                 }
                 Err(_) => panic!("This should never happen"),
