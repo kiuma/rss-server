@@ -1,5 +1,5 @@
-use rss_engine::{ResponseFuture, RssService};
-use hyper;
+use rss_engine::ResponseFuture;
+
 use hyper::server::{Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 use std::io::Error;
 use futures::future;
@@ -27,7 +27,7 @@ macro_rules! rss_service {
 })}
 
 
-///A Router is a trait meant to be used 
+///A Router is a trait meant to be used for
 pub trait Router {
     /// Requests handled by the service.
     type Request;
@@ -43,6 +43,9 @@ pub trait Router {
 
     /// Process the request and return the response asynchronously.
     fn dispatch(&self, req: Self::Request, status_code: StatusCode) -> Self::Future;
+    /// This method addresses the response. If the StatusCode equals to 404 (NotFound) the computation
+    /// is passed to the next Router of the Resolver. If no other router can be used, the response
+    //is delegated to the default error handler.
     fn route(&self, req: &HyperRequest) -> FutureResult<StatusCode, ()>;
 }
 
@@ -66,25 +69,21 @@ impl RouteResolver {
         }
     }
 
-    fn route(
-        self,
-        req: &HyperRequest,
-    ) -> Box<Future<Item = (Self, StatusCode), Error = Error>> {
+    fn route(self, req: &HyperRequest) -> Box<Future<Item = (Self, StatusCode), Error = Error>> {
         let router = &mut self.get_router();
         match *router {
-            Some(ref mut router) => Box::new(router.route(&req)
-                .then(|status_code| {
-                    let status_code = match status_code {
-                        Ok(status_code) => status_code,
-                        Err(_) => StatusCode::InternalServerError
-                    };
-                    ok((self, status_code))
-                })),
+            Some(ref mut router) => Box::new(router.route(&req).then(|status_code| {
+                let status_code = match status_code {
+                    Ok(status_code) => status_code,
+                    Err(_) => StatusCode::InternalServerError,
+                };
+                ok((self, status_code))
+            })),
             _ => Box::new(ok((self, StatusCode::NotFound))),
         }
     }
 
-    fn next(mut self, status_code: StatusCode) -> FutureResult<(Self, StatusCode,  bool), Error> {
+    fn next(mut self, status_code: StatusCode) -> FutureResult<(Self, StatusCode), Error> {
         let mut current_route: usize = 0;
 
         match self.ix {
@@ -98,11 +97,12 @@ impl RouteResolver {
                 }
             }
         }
-        let done = match status_code {
-            StatusCode::NotFound => current_route + 1 >= self.routers.len(),
-            _ => true,
-        };
-        ok((self, status_code, done))
+
+        if status_code == StatusCode::NotFound {
+            current_route + 1 >= self.routers.len();
+        }
+
+        ok((self, status_code))
     }
 
     fn get_router(&self) -> Option<Rc<RouterService>> {
@@ -119,21 +119,20 @@ impl RouteResolver {
     }
 }
 
-/// A RootService is a sevice that is used to delegate to another suitable
-/// service the computation of an HTTP response.
+/// A RootService is a sevice that delegates the computation of an HTTP response to a list of
+/// routers.
 ///
-/// It has a reference of routers and an error handler
-/// Routers are special services that have a route method. This method
+/// If no router is suitable for the given HTTP request, then a special RouterService, the error_handler,
+/// is used to return the response. error_handler is use also to display error messages.
 pub struct RootService {
+    ///Vector of routers that will participate in the coice of the correct dispatcher
     routers: Rc<Vec<Rc<RouterService>>>,
+    ///If no router can dispatch the response error_handler is used to display the error
     error_handler: Rc<RouterService>,
 }
 
 impl RootService {
-    pub fn new(
-        routers: Vec<Rc<RouterService>>,
-        error_handler: Rc<RouterService>,
-    ) -> RootService {
+    pub fn new(routers: Vec<Rc<RouterService>>, error_handler: Rc<RouterService>) -> RootService {
         RootService {
             routers: Rc::new(routers),
             error_handler,
@@ -141,7 +140,7 @@ impl RootService {
     }
 }
 
-impl hyper::server::Service for RootService {
+impl HyperService for RootService {
     type Request = HyperRequest;
     type Response = HyperResponse;
     type Error = HyperError;
@@ -152,29 +151,35 @@ impl hyper::server::Service for RootService {
         let e_handler = self.error_handler.clone();
         let status_code = StatusCode::NotFound;
         Box::new(
-            future::loop_fn((route_resolver, req, status_code), |(route_resolver, req, status_code)| {
-                route_resolver
-                    .route(&req)
-                    .and_then(|(route_resolver, status_code)| {
-                        route_resolver.next(status_code).and_then(
-                            |(route_resolver, status_code, done)| {
+            future::loop_fn((route_resolver, req, status_code), |(route_resolver,
+              req,
+              _status_code)| {
+                route_resolver.route(&req).and_then(
+                    |(route_resolver, status_code)| {
+                        route_resolver.next(status_code).and_then(|(route_resolver,
+                          status_code)| {
 
-                                let router = route_resolver.get_router();
-                                match router {
-                                    Some(_) => {
-                                        if done {
-                                            Ok(Loop::Break((route_resolver, req, status_code)))
-                                        } else {
-                                            Ok(Loop::Continue((route_resolver, req, status_code)))
-                                        }
+                            let router = route_resolver.get_router();
+                            match router {
+                                Some(_) => {
+                                    match status_code {
+                                        StatusCode::NotFound => Ok(Loop::Continue(
+                                            (route_resolver, req, status_code),
+                                        )),
+                                        _ => Ok(Loop::Break((route_resolver, req, status_code))),
                                     }
-                                    _ => Ok(Loop::Break((route_resolver, req, status_code))),
                                 }
-                            },
-                        )
-                    })
-            }).then(move |route_resolver_and_req: Result<(RouteResolver, HyperRequest, StatusCode) ,Error>|
-                match route_resolver_and_req {
+                                _ => Ok(Loop::Break((route_resolver, req, StatusCode::NotFound))),
+                            }
+                        })
+                    },
+                )
+            }).then(move |route_resolver_and_req: Result<
+                (RouteResolver,
+                 HyperRequest,
+                 StatusCode),
+                Error,
+            >| match route_resolver_and_req {
                 Ok((route_resolver, req, status_code)) => {
                     let router = route_resolver.get_router();
                     match router {
@@ -182,7 +187,7 @@ impl hyper::server::Service for RootService {
                         _ => e_handler.dispatch(req, status_code),
                     }
                 }
-                Err(_) => panic!("This should never happen"),
+                Err(e) => panic!("This should never happen!\n{}", e),
             }),
         )
     }

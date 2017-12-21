@@ -8,12 +8,15 @@ use toml;
 #[derive(Debug)]
 pub struct RssError {
     description: String,
-    parent: Option<Box<Error>>
+    parent: Option<Box<Error>>,
 }
 
 impl RssError {
     pub fn new(message: &str) -> RssError {
-        RssError { description: String::from(message), parent: None }
+        RssError {
+            description: String::from(message),
+            parent: None,
+        }
     }
 }
 
@@ -31,18 +34,18 @@ impl fmt::Display for RssError {
 
 impl From<io::Error> for RssError {
     fn from(err: io::Error) -> RssError {
-        RssError{
-            description : String::from(err.description()),
-            parent: Some(Box::new(err))
+        RssError {
+            description: String::from(err.description()),
+            parent: Some(Box::new(err)),
         }
     }
 }
 
 impl From<toml::de::Error> for RssError {
     fn from(err: toml::de::Error) -> RssError {
-        RssError{
-            description : String::from(err.description()),
-            parent: Some(Box::new(err))
+        RssError {
+            description: String::from(err.description()),
+            parent: Some(Box::new(err)),
         }
     }
 }

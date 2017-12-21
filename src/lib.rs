@@ -11,7 +11,7 @@ extern crate serde_derive;
 extern crate serde;
 extern crate toml;
 
-extern crate futures_await as futures;
+extern crate futures;
 extern crate tokio_pool;
 extern crate tokio_core;
 
@@ -22,8 +22,7 @@ mod errors;
 pub use errors::RssError;
 
 mod config;
-pub use config::{RssConfigurable};
+pub use config::RssConfigurable;
 
 mod server;
 pub use server::{RssHttpServer, DefaultRssHttpServer, RssService, ResponseFuture};
-
