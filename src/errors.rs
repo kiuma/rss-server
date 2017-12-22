@@ -6,12 +6,16 @@ use std::{io, fmt};
 use toml;
 
 #[derive(Debug)]
+/// This error is used to optionally concatenate an error with another.
 pub struct RssError {
-    description: String,
-    parent: Option<Box<Error>>,
+    /// Error descrption
+    pub description: String,
+    /// Optional parent error
+    pub parent: Option<Box<Error>>,
 }
 
 impl RssError {
+    /// Creates a new RssError with the given message
     pub fn new(message: &str) -> RssError {
         RssError {
             description: String::from(message),

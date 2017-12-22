@@ -26,3 +26,5 @@ pub use config::RssConfigurable;
 
 mod server;
 pub use server::{RssHttpServer, DefaultRssHttpServer, RssService, ResponseFuture};
+
+pub mod services;
