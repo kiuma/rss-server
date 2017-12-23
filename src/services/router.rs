@@ -3,7 +3,11 @@ use futures::future::{Future, FutureResult};
 use hyper::StatusCode;
 
 
-///A Router is a trait meant to be used for
+/// A Router is a trait meant to be used for addressing requests.
+///
+/// Routers are usualy chained together in a vector and passed to a [RootService](struct.RootService.html)
+/// When a request arrives, the asynchronous route method is called. If the statu code contained by
+/// Result is not an error the comutation is passed to the dispatch method
 pub trait Router {
     /// Requests handled by the service.
     type Request;
@@ -21,8 +25,8 @@ pub trait Router {
     fn dispatch(&self, req: Self::Request, status_code: StatusCode) -> Self::Future;
     /// This method addresses the response. If the StatusCode equals to 404 (NotFound) the computation
     /// is passed to the next Router of the Resolver. If no other router can be used, the response
-    //is delegated to the default error handler.
-    fn route(&self, req: &HyperRequest) -> FutureResult<StatusCode, ()>;
+    // is delegated to the default error handler.
+    fn route(&self, req: &HyperRequest) -> FutureResult<StatusCode, StatusCode>;
 }
 
 #[macro_export]

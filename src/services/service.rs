@@ -3,7 +3,7 @@ use ResponseFuture;
 use hyper::server::{Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 use std::io::Error;
 use futures::future;
-use futures::future::{ok, Future, FutureResult, Loop};
+use futures::future::{ok, err, Future, Loop};
 use hyper::StatusCode;
 use hyper::Error as HyperError;
 use std::rc::Rc;
@@ -20,69 +20,55 @@ type RouterService = Router<
 
 struct RouteResolver {
     routers: Rc<Vec<Rc<RouterService>>>,
-    ix: Option<usize>,
+    ix: usize,
 }
 
 impl RouteResolver {
     fn new(routers: Rc<Vec<Rc<RouterService>>>) -> RouteResolver {
         RouteResolver {
             routers: routers.clone(),
-            ix: None,
+            ix: 0,
         }
     }
 
-    fn route(self, req: &HyperRequest) -> Box<Future<Item = (Self, StatusCode), Error = Error>> {
+    fn route(
+        self,
+        req: &HyperRequest,
+    ) -> Box<Future<Item = (Self, StatusCode), Error = (Self, StatusCode)>> {
         let router = &mut self.get_router();
         match *router {
-            Some(ref mut router) => Box::new(router.route(&req).then(|status_code| {
-                let status_code = match status_code {
-                    Ok(status_code) => status_code,
-                    Err(_) => StatusCode::InternalServerError,
-                };
-                ok((self, status_code))
-            })),
-            _ => Box::new(ok((self, StatusCode::NotFound))),
+            Some(ref mut router) => Box::new(
+                router.route(&req).then(|status_code| match status_code {
+                    Ok(status_code) => ok((self, status_code)),
+                    Err(status_code) => err((self, status_code)),
+                }),
+            ),
+            _ => Box::new(err((self, StatusCode::NotFound))),
         }
     }
 
-    fn next(mut self, status_code: StatusCode) -> FutureResult<(Self, StatusCode), Error> {
-        let mut current_route: usize = 0;
-
-        match self.ix {
-            Some(ix) => {
-                current_route = usize::max(ix + 1, self.routers.len());
-                self.ix = Some(current_route + 1);
-            }
-            _ => {
-                if !self.routers.is_empty() {
-                    self.ix = Some(current_route);
-                }
-            }
+    fn next(mut self) -> Result<Self, Self> {
+        if self.ix + 1 >= self.routers.len() {
+            Err( self )
+        } else {
+            self.ix = self.ix + 1;
+            Ok(self)
         }
-
-        if status_code == StatusCode::NotFound {
-            current_route + 1 >= self.routers.len();
-        }
-
-        ok((self, status_code))
     }
 
     fn get_router(&self) -> Option<Rc<RouterService>> {
-        match self.ix {
-            Some(ix) => {
-                let route = self.routers.get(ix);
+                let route = self.routers.get(self.ix);
                 match route {
                     Some(route) => Some(route.clone()),
                     _ => None,
                 }
-            }
-            _ => None,
-        }
     }
 }
 
 /// A RootService is a sevice that delegates the computation of an HTTP response to a list of
 /// routers.
+///
+/// This service is meant to be destinated to a RssHttpServer implementor.
 ///
 /// If no router is suitable for the given HTTP request, then a special RouterService, the error_handler,
 /// is used to return the response. error_handler is use also to display error messages.
@@ -94,6 +80,7 @@ pub struct RootService {
 }
 
 impl RootService {
+    /// create a new root service
     pub fn new(routers: Vec<Rc<RouterService>>, error_handler: Rc<RouterService>) -> RootService {
         RootService {
             routers: Rc::new(routers),
@@ -116,24 +103,30 @@ impl HyperService for RootService {
             future::loop_fn((route_resolver, req, status_code), |(route_resolver,
               req,
               _status_code)| {
-                route_resolver.route(&req).and_then(
-                    |(route_resolver, status_code)| {
-                        route_resolver.next(status_code).and_then(|(route_resolver,
-                          status_code)| {
+                route_resolver.route(&req).then(
+                    |route_result| {
 
-                            let router = route_resolver.get_router();
-                            match router {
-                                Some(_) => {
-                                    match status_code {
-                                        StatusCode::NotFound => Ok(Loop::Continue(
-                                            (route_resolver, req, status_code),
-                                        )),
-                                        _ => Ok(Loop::Break((route_resolver, req, status_code))),
-                                    }
+                        match route_result {
+                            Ok((route_resolver, status_code)) => {
+                                let router = route_resolver.get_router();
+                                Ok(Loop::Break((route_resolver, req, match router {
+                                    Some(_) => status_code,
+                                    _ => StatusCode::NotFound,
+                                })))
+                            },
+                            Err((route_resolver, status_code)) => {
+                                match status_code {
+                                    StatusCode::NotFound => {
+                                            match route_resolver.next() {
+                                                Ok(route_resolver) => Ok(Loop::Continue((route_resolver, req, StatusCode::NotFound))),
+                                                Err(route_resolver) => Ok(Loop::Break((route_resolver, req, StatusCode::NotFound))),
+                                            }
+                                    },
+                                    _ => Ok(Loop::Break((route_resolver, req, status_code))),
                                 }
-                                _ => Ok(Loop::Break((route_resolver, req, StatusCode::NotFound))),
+
                             }
-                        })
+                        }
                     },
                 )
             }).then(move |route_resolver_and_req: Result<
