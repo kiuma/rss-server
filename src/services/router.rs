@@ -42,6 +42,6 @@ macro_rules! rss_router {
         ::futures::future::FutureResult<(::hyper::StatusCode, Self::Request), ::std::io::Error>
     $body_route
 
-    fn call(&self, $req: Self::Request) -> Self::Future
+    fn dispatch(&self, $req: Self::Request) -> Self::Future
     $body_call
 })}

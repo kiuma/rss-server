@@ -7,6 +7,7 @@ use toml;
 
 #[derive(Debug)]
 /// This error is used to optionally concatenate an error with another.
+/// Used as Err type in [DefaultRssHttpServer](truct.DefaultRssHttpServer.html)
 pub struct RssError {
     /// Error descrption
     pub description: String,

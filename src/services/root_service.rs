@@ -49,7 +49,7 @@ impl RouteResolver {
 
     fn next(mut self) -> Result<Self, Self> {
         if self.ix + 1 >= self.routers.len() {
-            Err( self )
+            Err(self)
         } else {
             self.ix = self.ix + 1;
             Ok(self)
@@ -57,30 +57,28 @@ impl RouteResolver {
     }
 
     fn get_router(&self) -> Option<Rc<RouterService>> {
-                let route = self.routers.get(self.ix);
-                match route {
-                    Some(route) => Some(route.clone()),
-                    _ => None,
-                }
+        let route = self.routers.get(self.ix);
+        match route {
+            Some(route) => Some(route.clone()),
+            _ => None,
+        }
     }
 }
 
 /// A RootService is a sevice that delegates the computation of an HTTP response to a list of
-/// routers.
-///
-/// This service is meant to be destinated to a RssHttpServer implementor.
+/// routers (see [Router](trait.Router.html)).
 ///
 /// If no router is suitable for the given HTTP request, then a special RouterService, the error_handler,
-/// is used to return the response. error_handler is use also to display error messages.
+/// is used to return the response. error_handler is used to render error messages.
 pub struct RootService {
     ///Vector of routers that will participate in the coice of the correct dispatcher
     routers: Rc<Vec<Rc<RouterService>>>,
-    ///If no router can dispatch the response error_handler is used to display the error
+    ///If no router can dispatch the response, error_handler is used to render the error
     error_handler: Rc<RouterService>,
 }
 
 impl RootService {
-    /// create a new root service
+    /// Creates a new root service
     pub fn new(routers: Vec<Rc<RouterService>>, error_handler: Rc<RouterService>) -> RootService {
         RootService {
             routers: Rc::new(routers),
@@ -103,32 +101,41 @@ impl HyperService for RootService {
             future::loop_fn((route_resolver, req, status_code), |(route_resolver,
               req,
               _status_code)| {
-                route_resolver.route(&req).then(
-                    |route_result| {
+                route_resolver.route(&req).then(|route_result| {
 
-                        match route_result {
-                            Ok((route_resolver, status_code)) => {
-                                let router = route_resolver.get_router();
-                                Ok(Loop::Break((route_resolver, req, match router {
+                    match route_result {
+                        Ok((route_resolver, status_code)) => {
+                            let router = route_resolver.get_router();
+                            Ok(Loop::Break((
+                                route_resolver,
+                                req,
+                                match router {
                                     Some(_) => status_code,
                                     _ => StatusCode::NotFound,
-                                })))
-                            },
-                            Err((route_resolver, status_code)) => {
-                                match status_code {
-                                    StatusCode::NotFound => {
-                                            match route_resolver.next() {
-                                                Ok(route_resolver) => Ok(Loop::Continue((route_resolver, req, StatusCode::NotFound))),
-                                                Err(route_resolver) => Ok(Loop::Break((route_resolver, req, StatusCode::NotFound))),
-                                            }
-                                    },
-                                    _ => Ok(Loop::Break((route_resolver, req, status_code))),
+                                },
+                            )))
+                        }
+                        Err((route_resolver, status_code)) => {
+                            match status_code {
+                                StatusCode::NotFound => {
+                                    match route_resolver.next() {
+                                        Ok(route_resolver) => Ok(Loop::Continue((
+                                            route_resolver,
+                                            req,
+                                            StatusCode::NotFound,
+                                        ))),
+                                        Err(route_resolver) => Ok(Loop::Break((
+                                            route_resolver,
+                                            req,
+                                            StatusCode::NotFound,
+                                        ))),
+                                    }
                                 }
-
+                                _ => Ok(Loop::Break((route_resolver, req, status_code))),
                             }
                         }
-                    },
-                )
+                    }
+                })
             }).then(move |route_resolver_and_req: Result<
                 (RouteResolver,
                  HyperRequest,

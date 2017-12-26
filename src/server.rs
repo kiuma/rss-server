@@ -20,6 +20,7 @@ use std::path::PathBuf;
 
 use toml;
 
+
 pub type ResponseFuture = Box<Future<Item = HyperResponse, Error = HyperError>>;
 
 pub type RssService = HyperService<
@@ -38,22 +39,36 @@ struct RssServerConfig {
     pub num_workers: usize,
 }
 
+///Default implementor of trait [RssHttpServer](trait.RssHttpServer.html)
 pub struct DefaultRssHttpServer {
     _config: RssServerConfig,
+    service: Arc<RssService>,
 }
 
 struct DefaultRssHttpConfigurator {
     path: PathBuf,
 }
 
+
+/// This tarit defines an RSS HTTP server.
+/// An RSS HTTP server is a multithreaduing and async/io web server based on [Hyper](https://hyper.rs/) and [futures](https://docs.rs/futures/0.1.17/futures/).
+///
+/// Through a routing system it drivers the business logic for serving pages and handling error
+/// messages.
 pub trait RssHttpServer {
     type Err;
     type Item;
-    fn new(path: PathBuf) -> Self::Item;
-    fn start(&self, sevice: Box<RssService>) -> Result<(), Self::Err>;
+    /// Creates a new server defining the configuration path (used by services implementing [RssConfigurable](trait.RssConfigurable.html))
+    /// and the root service, the entry point to handle the request dispatching logic.
+    ///
+    fn new(config_path: PathBuf, service: Box<RssService>) -> Self::Item;
+    /// Starts the server and begins serving requests
+    fn start(&self) -> Result<(), Self::Err>;
 }
 
-const HTTP_SERVER_CONFIG_STR: &str = r#"
+///Server default configuration, converted using serde. This constant is used when no "http-server.toml"
+/// is found in the server config_path.
+pub const HTTP_SERVER_CONFIG_STR: &str = r#"
 # HTTP server configuration
 
 bind_address = "127.0.0.1"
@@ -96,14 +111,17 @@ impl RssConfigurable for DefaultRssHttpConfigurator {
 impl RssHttpServer for DefaultRssHttpServer {
     type Err = RssError;
     type Item = DefaultRssHttpServer;
-    fn new(path: PathBuf) -> DefaultRssHttpServer {
-        let config = DefaultRssHttpConfigurator { path };
+    fn new(config_path: PathBuf, service: Box<RssService>) -> DefaultRssHttpServer {
+        let config = DefaultRssHttpConfigurator { path: config_path };
         let content = config.load().unwrap();
         let server_config: RssServerConfig = toml::from_str(content.as_str()).unwrap();
-        DefaultRssHttpServer { _config: server_config }
+        DefaultRssHttpServer {
+            _config: server_config,
+            service: Arc::new(service),
+        }
     }
 
-    fn start(&self, service: Box<RssService>) -> Result<(), Self::Err> {
+    fn start(&self) -> Result<(), Self::Err> {
         //_service: Arc<RssService>,
         // Create a pool with 4 workers
         let (pool, join) =
@@ -117,8 +135,7 @@ impl RssHttpServer for DefaultRssHttpServer {
         // Clone the pool reference for the listener worker
         let pool_ref = pool.clone();
 
-
-        let service = Arc::new(service);
+        let service = self.service.clone();
         pool.next_worker().spawn(move |handle| {
             // Bind a TCP listener to our address
             let listener = TcpListener::bind(&addr, handle).unwrap();
@@ -152,6 +169,7 @@ mod tests {
 
     use std::path::PathBuf;
     use std::fs::remove_file;
+    use hyper::StatusCode;
 
     fn get_conf_dir() -> PathBuf {
         [
@@ -171,7 +189,22 @@ mod tests {
             remove_file(filename.clone()).unwrap();
         }
 
-        let server = DefaultRssHttpServer::new(conf_dir);
+        struct ErrorHandler = {};
+
+rss_router!(ErrorHandler, req, {
+    //this shouldn't be called
+    ok(StatusCode::InternalServerError)
+}, {
+    ok(Response::new()
+                               .with_status(statusCode)
+                               .with_header(ContentLength(HTML_ERROR.len() as u64))
+                               .with_body(HTML_ERROR))
+});
+
+
+        let root_service = RootService::new([], error_handler)
+
+        let server = DefaultRssHttpServer::new(conf_dir, ErrorHandler);
         assert!(filename.exists(), "{:?} does not exist", filename);
         let config = server._config;
         let expected = "127.0.0.1";
