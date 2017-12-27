@@ -31,7 +31,7 @@ pub trait Router {
 
 #[macro_export]
 macro_rules! rss_router {
-($struct:tt, $req:tt, $body_route:block, $body_call:block) =>
+($struct:tt, $req:tt, $status_code:tt, $body_route:block, $body_call:block) =>
 (impl Router for $struct {
     type Request = ::hyper::server::Request;
     type Response = ::hyper::server::Response;
@@ -42,6 +42,6 @@ macro_rules! rss_router {
         ::futures::future::FutureResult<(::hyper::StatusCode, Self::Request), ::std::io::Error>
     $body_route
 
-    fn dispatch(&self, $req: Self::Request) -> Self::Future
+    fn dispatch(&self, $req: Self::Request, $status_code) -> Self::Future
     $body_call
 })}
