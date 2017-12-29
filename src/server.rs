@@ -221,31 +221,32 @@ mod tests {
         let root_service = Arc::new(RootService::new(Vec::new(), error_handler.clone()));
 
         let server = DefaultRssHttpServer::new(conf_dir, root_service.clone());
-        // assert!(filename.exists(), "{:?} does not exist", filename);
-        // let config = server._config;
-        // let expected = "127.0.0.1";
-        // assert_eq!(
-        //     config.bind_address,
-        //     expected,
-        //     "Expected bind address {}, but got {}",
-        //     expected,
-        //     config.bind_address
-        // );
-        // let expected = 8080;
-        // assert_eq!(
-        //     config.bind_port,
-        //     expected,
-        //     "Expected bind port {}, but got {}",
-        //     expected,
-        //     config.bind_port
-        // );
-        // let expected = 4;
-        // assert_eq!(
-        //     config.num_workers,
-        //     expected,
-        //     "Expected {} workers, but got {}",
-        //     expected,
-        //     config.num_workers
-        // );
+
+        assert!(filename.exists(), "{:?} does not exist", filename);
+        let config = server._config;
+        let expected = "127.0.0.1";
+        assert_eq!(
+            config.bind_address,
+            expected,
+            "Expected bind address {}, but got {}",
+            expected,
+            config.bind_address
+        );
+        let expected = 8080;
+        assert_eq!(
+            config.bind_port,
+            expected,
+            "Expected bind port {}, but got {}",
+            expected,
+            config.bind_port
+        );
+        let expected = 4;
+        assert_eq!(
+            config.num_workers,
+            expected,
+            "Expected {} workers, but got {}",
+            expected,
+            config.num_workers
+        );
     }
 }

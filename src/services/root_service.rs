@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// Routers are usualy chained together in a vector and passed to a [RootService](struct.RootService.html)
 /// When a request arrives, the asynchronous route method is called. If the statu code contained by
 /// Result is not an error the comutation is passed to the dispatch method
-pub trait Router {
+pub trait Router: Sync + Send {
     /// This method addresses the response. If the StatusCode equals to 404 (NotFound) the computation
     /// is passed to the next Router of the Resolver. If no other router can be used, the response
     // is delegated to the default error handler.
@@ -87,9 +87,6 @@ pub struct RootService {
     ///If no router can dispatch the response, error_handler is used to render the error
     error_handler: Arc<Router>,
 }
-
-unsafe impl Send for RootService {}
-unsafe impl Sync for RootService {}
 
 impl RootService {
     /// Creates a new root service
