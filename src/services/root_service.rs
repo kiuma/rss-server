@@ -6,25 +6,36 @@ use futures::future;
 use futures::future::{ok, err, Future, Loop};
 use hyper::StatusCode;
 use hyper::Error as HyperError;
-use std::rc::Rc;
 
-pub use super::router::Router;
+use std::sync::Arc;
 
 
-type RouterService = Router<
-    Request = HyperRequest,
-    Response = HyperResponse,
-    Error = HyperError,
-    Future = ResponseFuture,
->;
+/// A Router is a trait meant to be used for addressing requests.
+///
+/// Routers are usualy chained together in a vector and passed to a [RootService](struct.RootService.html)
+/// When a request arrives, the asynchronous route method is called. If the statu code contained by
+/// Result is not an error the comutation is passed to the dispatch method
+pub trait Router {
+    /// This method addresses the response. If the StatusCode equals to 404 (NotFound) the computation
+    /// is passed to the next Router of the Resolver. If no other router can be used, the response
+    // is delegated to the default error handler.
+    fn route(&self, req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>>;
+
+    /// Process the request and return the response asynchronously.
+    fn dispatch(
+        &self,
+        req: HyperRequest,
+        status_code: StatusCode,
+    ) -> Box<Future<Item = HyperResponse, Error = HyperError>>;
+}
 
 struct RouteResolver {
-    routers: Rc<Vec<Rc<RouterService>>>,
+    routers: Arc<Vec<Arc<Router>>>,
     ix: usize,
 }
 
 impl RouteResolver {
-    fn new(routers: Rc<Vec<Rc<RouterService>>>) -> RouteResolver {
+    fn new(routers: Arc<Vec<Arc<Router>>>) -> RouteResolver {
         RouteResolver {
             routers: routers.clone(),
             ix: 0,
@@ -56,7 +67,7 @@ impl RouteResolver {
         }
     }
 
-    fn get_router(&self) -> Option<Rc<RouterService>> {
+    fn get_router(&self) -> Option<Arc<Router>> {
         let route = self.routers.get(self.ix);
         match route {
             Some(route) => Some(route.clone()),
@@ -72,17 +83,20 @@ impl RouteResolver {
 /// is used to return the response. error_handler is used to render error messages.
 pub struct RootService {
     ///Vector of routers that will participate in the coice of the correct dispatcher
-    routers: Rc<Vec<Rc<RouterService>>>,
+    routers: Arc<Vec<Arc<Router>>>,
     ///If no router can dispatch the response, error_handler is used to render the error
-    error_handler: Rc<RouterService>,
+    error_handler: Arc<Router>,
 }
+
+unsafe impl Send for RootService {}
+unsafe impl Sync for RootService {}
 
 impl RootService {
     /// Creates a new root service
-    pub fn new(routers: Vec<Rc<RouterService>>, error_handler: Rc<RouterService>) -> RootService {
+    pub fn new(routers: Vec<Arc<Router>>, error_handler: Arc<Router>) -> RootService {
         RootService {
-            routers: Rc::new(routers),
-            error_handler,
+            routers: Arc::new(routers),
+            error_handler: error_handler.clone(),
         }
     }
 }

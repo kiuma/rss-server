@@ -1,4 +1,4 @@
-extern crate rss_engine;
+//extern crate rss_engine;
 
 //use std::env;
 //use rss_engine::{RssHttpServer, DefaultRssHttpServer};
@@ -14,5 +14,5 @@ extern crate rss_engine;
 #[test]
 fn serving_requests() {
 
-    assert_eq!(1,1);
+    assert_eq!(1, 1);
 }
