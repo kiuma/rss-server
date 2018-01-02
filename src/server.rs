@@ -39,7 +39,7 @@ struct RssServerConfig {
     pub num_workers: usize,
 }
 
-///Default implementor of trait [RssHttpServer](trait.RssHttpServer.html)
+///Default implementor of trait [`RssHttpServer`](trait.RssHttpServer.html)
 pub struct DefaultRssHttpServer {
     _config: RssServerConfig,
     service: Arc<RssService>,
@@ -67,7 +67,7 @@ pub trait RssHttpServer {
 }
 
 ///Server default configuration, converted using serde. This constant is used when no "http-server.toml"
-/// is found in the server config_path.
+/// is found in the server `config_path`.
 pub const HTTP_SERVER_CONFIG_STR: &str = r#"
 # HTTP server configuration
 
@@ -79,14 +79,14 @@ num_workers = 4
 impl DefaultRssHttpServer {}
 
 impl DefaultRssHttpConfigurator {
-    pub(crate) fn get_conf_filename(path: PathBuf) -> PathBuf {
+    pub(crate) fn get_conf_filename(path: &PathBuf) -> PathBuf {
         let mut filename = PathBuf::new();
         filename.push(path.as_path());
         filename.push("http-server.toml");
         filename
     }
     fn save(&self) -> Result<String, RssError> {
-        let mut file = File::create(Self::get_conf_filename(self.path.clone())).unwrap();
+        let mut file = File::create(Self::get_conf_filename(&self.path)).unwrap();
 
         file.write_all(HTTP_SERVER_CONFIG_STR.as_bytes())?;
         Ok(String::from(HTTP_SERVER_CONFIG_STR))
@@ -95,7 +95,7 @@ impl DefaultRssHttpConfigurator {
 
 impl RssConfigurable for DefaultRssHttpConfigurator {
     fn load(&self) -> Result<String, RssError> {
-        let file = File::open(Self::get_conf_filename(self.path.clone()));
+        let file = File::open(Self::get_conf_filename(&self.path));
 
         match file {
             Ok(mut file) => {
@@ -117,7 +117,7 @@ impl RssHttpServer for DefaultRssHttpServer {
         let server_config: RssServerConfig = toml::from_str(content.as_str()).unwrap();
         DefaultRssHttpServer {
             _config: server_config,
-            service: service.clone(),
+            service: Arc::clone(&service),
         }
     }
 
@@ -133,9 +133,9 @@ impl RssHttpServer for DefaultRssHttpServer {
         let addr = server_address.parse().unwrap();
 
         // Clone the pool reference for the listener worker
-        let pool_ref = pool.clone();
+        let pool_ref =Arc::clone(&pool);
 
-        let service = self.service.clone();
+        let service = Arc::clone(&self.service);
         pool.next_worker().spawn(move |handle| {
             // Bind a TCP listener to our address
             let listener = TcpListener::bind(&addr, handle).unwrap();
@@ -143,10 +143,10 @@ impl RssHttpServer for DefaultRssHttpServer {
             listener
                 .incoming()
                 .for_each(move |(socket, addr)| {
-                    let inner_service = service.clone();
+                    let inner_service = Arc::clone(&service);
                     pool_ref.next_worker().spawn(move |handle| {
                         let http = Http::new();
-                        http.bind_connection(&handle, socket, addr, inner_service);
+                        http.bind_connection(handle, socket, addr, inner_service);
                         // Do work with a client socket
                         Ok(())
                     });
@@ -211,14 +211,14 @@ mod tests {
     #[test]
     fn writes_and_load_config() {
         let conf_dir = get_conf_dir();
-        let filename = DefaultRssHttpConfigurator::get_conf_filename(conf_dir.clone());
+        let filename = DefaultRssHttpConfigurator::get_conf_filename(&conf_dir.clone());
         if filename.exists() {
             remove_file(filename.clone()).unwrap();
         }
 
-        let error_handler = Arc::new(ErrorHandler {});
+        let error_handler: Arc<Router> = Arc::new(ErrorHandler {});
 
-        let root_service = Arc::new(RootService::new(Vec::new(), error_handler.clone()));
+        let root_service = Arc::new(RootService::new(Vec::new(), &error_handler));
 
         let server = DefaultRssHttpServer::new(conf_dir, root_service.clone());
 

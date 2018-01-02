@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 /// A Router is a trait meant to be used for addressing requests.
 ///
-/// Routers are usualy chained together in a vector and passed to a [RootService](struct.RootService.html)
+/// Routers are usualy chained together in a vector and passed to a [`RootService`](struct.RootService.html)
 /// When a request arrives, the asynchronous route method is called. If the statu code contained by
 /// Result is not an error the comutation is passed to the dispatch method
 pub trait Router: Sync + Send {
@@ -35,9 +35,9 @@ struct RouteResolver {
 }
 
 impl RouteResolver {
-    fn new(routers: Arc<Vec<Arc<Router>>>) -> RouteResolver {
+    fn new(routers: &Arc<Vec<Arc<Router>>>) -> RouteResolver {
         RouteResolver {
-            routers: routers.clone(),
+            routers: Arc::clone(routers),
             ix: 0,
         }
     }
@@ -49,7 +49,7 @@ impl RouteResolver {
         let router = &mut self.get_router();
         match *router {
             Some(ref mut router) => Box::new(
-                router.route(&req).then(|status_code| match status_code {
+                router.route(req).then(|status_code| match status_code {
                     Ok(status_code) => ok((self, status_code)),
                     Err(status_code) => err((self, status_code)),
                 }),
@@ -62,7 +62,7 @@ impl RouteResolver {
         if self.ix + 1 >= self.routers.len() {
             Err(self)
         } else {
-            self.ix = self.ix + 1;
+            self.ix += 1;
             Ok(self)
         }
     }
@@ -70,17 +70,17 @@ impl RouteResolver {
     fn get_router(&self) -> Option<Arc<Router>> {
         let route = self.routers.get(self.ix);
         match route {
-            Some(route) => Some(route.clone()),
+            Some(route) => Some(Arc::clone(route)),
             _ => None,
         }
     }
 }
 
-/// A RootService is a sevice that delegates the computation of an HTTP response to a list of
-/// routers (see [Router](trait.Router.html)).
+/// A `RootService` is a sevice that delegates the computation of an HTTP response to a list of
+/// routers (see [`Router`](trait.Router.html)).
 ///
-/// If no router is suitable for the given HTTP request, then a special RouterService, the error_handler,
-/// is used to return the response. error_handler is used to render error messages.
+/// If no router is suitable for the given HTTP request, then a special `RouterService`, the `error_handler`,
+/// is used to return the response. `error_handler` is used to render error messages.
 pub struct RootService {
     ///Vector of routers that will participate in the coice of the correct dispatcher
     routers: Arc<Vec<Arc<Router>>>,
@@ -90,10 +90,10 @@ pub struct RootService {
 
 impl RootService {
     /// Creates a new root service
-    pub fn new(routers: Vec<Arc<Router>>, error_handler: Arc<Router>) -> RootService {
+    pub fn new(routers: Vec<Arc<Router>>, error_handler: &Arc<Router>) -> RootService {
         RootService {
             routers: Arc::new(routers),
-            error_handler: error_handler.clone(),
+            error_handler: Arc::clone(error_handler),
         }
     }
 }
@@ -105,8 +105,8 @@ impl HyperService for RootService {
     type Future = ResponseFuture;
 
     fn call(&self, req: Self::Request) -> Self::Future {
-        let route_resolver = RouteResolver::new(self.routers.clone());
-        let e_handler = self.error_handler.clone();
+        let route_resolver = RouteResolver::new(&self.routers);
+        let e_handler = Arc::clone(&self.error_handler);
         let status_code = StatusCode::NotFound;
         Box::new(
             future::loop_fn((route_resolver, req, status_code), |(route_resolver,
