@@ -10,18 +10,27 @@ use hyper::Error as HyperError;
 use std::sync::Arc;
 
 
-/// A Router is a trait meant to be used for addressing requests.
+/// A `Router` is a trait meant to be used for addressing requests.
 ///
-/// Routers are usualy chained together in a vector and passed to a [`RootService`](struct.RootService.html)
-/// When a request arrives, the asynchronous route method is called. If the statu code contained by
-/// Result is not an error the comutation is passed to the dispatch method
+/// Routers are usualy chained together in a vector and passed to a [`RouterService`](struct.RouterService.html)
+/// When a request arrives, the asynchronous [`route`](trait.Router.html#tymethod.route) method is called.
+///
+/// - If the future result is NOT an error, the response generation is delegated to the [`dispatch`](trait.Router.html#tymethod.dispatch) method.
+/// - If the future result is an error, and the associated status code is `NotFound` (404) the computation is delegated to the
+/// next `Router` of [`RouterService`](struct.RouterService.html). If every route has been attepted and has failed or if the status code associated
+/// to the error is different from `NotFound`. The special Router `error_handler` of [`RouterService`](struct.RouterService.html) is usedto display
+/// the error message.
+///
+/// Routers are usually passed to [`RouterService::new`](struct.RouterService.html#tymethod.new), an [Hyper](https://hyper.rs/)
+/// that performs HTTP dispatching strategy
 pub trait Router: Sync + Send {
-    /// This method addresses the response. If the StatusCode equals to 404 (NotFound) the computation
-    /// is passed to the next Router of the Resolver. If no other router can be used, the response
-    // is delegated to the default error handler.
+    /// This method is used to perform the routing logic. If the status code is not returned as an error,
+    /// the [`dispatch`](trait.Router.html#tymethod.dispatch) method will be called to render the HTTP
+    /// response.
     fn route(&self, req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>>;
 
-    /// Process the request and return the response asynchronously.
+    /// This method processes the request and return the response asynchronously. If the future resolves to an error,
+    /// the response generation is delegeted to the [`RouterService`](struct.RouterService.html) `error_handler`.
     fn dispatch(
         &self,
         req: HyperRequest,
@@ -76,29 +85,33 @@ impl RouteResolver {
     }
 }
 
-/// A `RootService` is a sevice that delegates the computation of an HTTP response to a list of
+/// A `RouterService` is a sevice that delegates the computation of an HTTP response to a list of
 /// routers (see [`Router`](trait.Router.html)).
 ///
-/// If no router is suitable for the given HTTP request, then a special `RouterService`, the `error_handler`,
+/// If no router is suitable for the given HTTP request, then a special `Router`, the `error_handler`,
 /// is used to return the response. `error_handler` is used to render error messages.
-pub struct RootService {
+pub struct RouterService {
     ///Vector of routers that will participate in the coice of the correct dispatcher
     routers: Arc<Vec<Arc<Router>>>,
     ///If no router can dispatch the response, error_handler is used to render the error
     error_handler: Arc<Router>,
 }
 
-impl RootService {
+impl RouterService {
     /// Creates a new root service
-    pub fn new(routers: Vec<Arc<Router>>, error_handler: &Arc<Router>) -> RootService {
-        RootService {
+    ///
+    /// - `routers`: Vector of routers that will participate in the choice of the correct dispatcher
+    /// - `error_handler`: This special `Router` is invoked when no routes can resolve the request or when a
+    /// `Router` returns an error different from a `NotFound` (404).
+    pub fn new(routers: Vec<Arc<Router>>, error_handler: &Arc<Router>) -> RouterService {
+        RouterService {
             routers: Arc::new(routers),
             error_handler: Arc::clone(error_handler),
         }
     }
 }
 
-impl HyperService for RootService {
+impl HyperService for RouterService {
     type Request = HyperRequest;
     type Response = HyperResponse;
     type Error = HyperError;
@@ -166,12 +179,6 @@ impl HyperService for RootService {
     }
 }
 
-//rss_service!(RootService, req, {
-//    for route in &self.routers {
-//        println!("{}", route);
-//    }
-//    Box::new(future::ok(Self::Response::new()))
-//});
 
 //========================== TESTS =====================================================//
 #[cfg(test)]

@@ -18,7 +18,6 @@ extern crate tokio_core;
 
 extern crate hyper;
 
-
 mod errors;
 pub use errors::RssError;
 
@@ -26,8 +25,7 @@ mod config;
 pub use config::RssConfigurable;
 
 mod server;
-pub use server::{RssHttpServer, DefaultRssHttpServer, RssService, ResponseFuture};
-
+pub use server::{HttpServer, RssHttpServer, RssService, ResponseFuture};
 
 mod services;
-pub use services::{RootService, Router};
+pub use services::{RouterService, Router};

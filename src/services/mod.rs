@@ -1,3 +1,3 @@
-mod root_service;
+mod routing;
 
-pub use self::root_service::{RootService, Router};
+pub use self::routing::{RouterService, Router};

@@ -39,10 +39,10 @@ struct RssServerConfig {
     pub num_workers: usize,
 }
 
-///Default implementor of trait [`RssHttpServer`](trait.RssHttpServer.html)
-pub struct DefaultRssHttpServer {
+///Default implementor of trait [`HttpServer`](trait.HttpServer.html)
+pub struct RssHttpServer {
     _config: RssServerConfig,
-    service: Arc<RssService>,
+    router_service: Arc<RssService>,
 }
 
 struct DefaultRssHttpConfigurator {
@@ -51,23 +51,26 @@ struct DefaultRssHttpConfigurator {
 
 
 /// This tarit defines an RSS HTTP server.
-/// An RSS HTTP server is a multithreaduing and async/io web server based on [Hyper](https://hyper.rs/) and [futures](https://docs.rs/futures/0.1.17/futures/).
+/// An RSS HTTP server is a multithreaduing and async/io web server based on
+/// [Hyper](https://hyper.rs/) and [futures](https://docs.rs/futures/0.1.17/futures/).
 ///
 /// Through a routing system it drivers the business logic for serving pages and handling error
 /// messages.
-pub trait RssHttpServer {
+///
+/// [`RssHttpServer`](struct.RssHttpServer.html) is its default implementation.
+pub trait HttpServer {
     type Err;
     type Item;
     /// Creates a new server defining the configuration path (used by services implementing [RssConfigurable](trait.RssConfigurable.html))
     /// and the root service, the entry point to handle the request dispatching logic.
     ///
-    fn new(config_path: PathBuf, service: Arc<RssService>) -> Self::Item;
+    fn new(config_path: PathBuf, router_service: Arc<RssService>) -> Self::Item;
     /// Starts the server and begins serving requests
     fn start(&self) -> Result<(), Self::Err>;
 }
 
-///Server default configuration, converted using serde. This constant is used when no "http-server.toml"
-/// is found in the server `config_path`.
+/// Server default configuration, converted using serde. This constant is used when no "http-server.toml"
+/// is found in the server `config_path`, this a new toml file with this content is generated.
 pub const HTTP_SERVER_CONFIG_STR: &str = r#"
 # HTTP server configuration
 
@@ -76,7 +79,7 @@ bind_port = 8080
 num_workers = 4
 "#;
 
-impl DefaultRssHttpServer {}
+impl RssHttpServer {}
 
 impl DefaultRssHttpConfigurator {
     pub(crate) fn get_conf_filename(path: &PathBuf) -> PathBuf {
@@ -108,16 +111,16 @@ impl RssConfigurable for DefaultRssHttpConfigurator {
     }
 }
 
-impl RssHttpServer for DefaultRssHttpServer {
+impl HttpServer for RssHttpServer {
     type Err = RssError;
-    type Item = DefaultRssHttpServer;
-    fn new(config_path: PathBuf, service: Arc<RssService>) -> DefaultRssHttpServer {
+    type Item = RssHttpServer;
+    fn new(config_path: PathBuf, router_service: Arc<RssService>) -> RssHttpServer {
         let config = DefaultRssHttpConfigurator { path: config_path };
         let content = config.load().unwrap();
         let server_config: RssServerConfig = toml::from_str(content.as_str()).unwrap();
-        DefaultRssHttpServer {
+        RssHttpServer {
             _config: server_config,
-            service: Arc::clone(&service),
+            router_service: Arc::clone(&router_service),
         }
     }
 
@@ -135,7 +138,7 @@ impl RssHttpServer for DefaultRssHttpServer {
         // Clone the pool reference for the listener worker
         let pool_ref =Arc::clone(&pool);
 
-        let service = Arc::clone(&self.service);
+        let service = Arc::clone(&self.router_service);
         pool.next_worker().spawn(move |handle| {
             // Bind a TCP listener to our address
             let listener = TcpListener::bind(&addr, handle).unwrap();
@@ -172,7 +175,7 @@ mod tests {
     use hyper::StatusCode;
     use hyper::header::ContentLength;
 
-    use services::{RootService, Router};
+    use services::{RouterService, Router};
 
     use futures::future::ok;
 
@@ -218,9 +221,9 @@ mod tests {
 
         let error_handler: Arc<Router> = Arc::new(ErrorHandler {});
 
-        let root_service = Arc::new(RootService::new(Vec::new(), &error_handler));
+        let root_service = Arc::new(RouterService::new(Vec::new(), &error_handler));
 
-        let server = DefaultRssHttpServer::new(conf_dir, root_service.clone());
+        let server = RssHttpServer::new(conf_dir, root_service.clone());
 
         assert!(filename.exists(), "{:?} does not exist", filename);
         let config = server._config;
