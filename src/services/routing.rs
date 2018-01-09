@@ -183,38 +183,157 @@ impl HyperService for RouterService {
 //========================== TESTS =====================================================//
 #[cfg(test)]
 mod tests {
-    //     use super::*;
-    //     use futures::future;
-    //     use futures::prelude::*;
-    //
-    //     static HTML: &'static str = "<!DOCTYPE html>
-    // <html>
-    //     <head>
-    //         <meta charset=\"UTF-8\">
-    //         <title>Home</title>
-    //     </head>
-    //     <body>
-    //         <h1>This is home!</h1>
-    //     </body>
-    // </html>";
-    //
-    //     #[test]
-    //     fn test_rss_service_macro_def() {
-    //         pub struct FooService;
-    //         rss_service!(FooService, _, {
-    //     Box::new(future::ok(
-    //     Self::Response::new()
-    //     .with_header(hyper::header::ContentLength(HTML.len() as u64))
-    //     .with_body(HTML),
-    //     ))
-    //     });
-    //         let service = FooService {};
-    //         let req = HyperRequest::new(hyper::Method::Get, hyper::Uri::default());
-    //         let resp: hyper::Response = service.call(req).wait().unwrap();
-    //
-    //         assert_eq!(
-    //             resp.headers().get(),
-    //             Some(&hyper::header::ContentLength(HTML.len() as u64))
-    //         )
-    //     }
+    extern crate http;
+
+    use super::*;
+    use hyper::header::ContentLength;
+    use hyper::{Method};
+    use futures::Stream;
+    use std::str::from_utf8;
+
+    struct SampleRouter {
+        content: String,
+        path: String,
+    }
+
+    impl SampleRouter {
+        fn new(path: &str, content: &str) -> SampleRouter {
+            SampleRouter{
+                content: content.to_owned(),
+                path: path.to_owned(),
+            }
+        }
+    }
+
+    struct ErrorHandler;
+
+    impl Router for ErrorHandler {
+        fn route(&self, _req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>> {
+            Box::new(ok(StatusCode::Found))
+        }
+
+        fn dispatch(
+            &self,
+            _req: HyperRequest,
+            status_code: StatusCode,
+        ) -> Box<Future<Item = HyperResponse, Error = HyperError>> {
+            let content = format!("{}", status_code.as_u16());
+            let res = HyperResponse::new()
+                .with_header(ContentLength(content.len() as u64))
+                .with_body(content);
+            Box::new(ok(res))
+        }
+    }
+
+    impl Router for SampleRouter {
+        fn route(&self, req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>> {
+            if &self.path == req.path() {
+                Box::new(ok(StatusCode::Found))
+            } else {
+                Box::new(err(StatusCode::NotFound))
+            }
+        }
+        fn dispatch(
+            &self,
+            _req: HyperRequest,
+            _status_code: StatusCode,
+        ) -> Box<Future<Item = HyperResponse, Error = HyperError>> {
+            let content = self.content.clone();
+            let res = HyperResponse::new()
+                .with_header(ContentLength(content.len() as u64))
+                .with_body(content);
+            Box::new(ok(res))
+        }
+    }
+
+    fn get_routers() -> Vec<Arc<Router>> {
+        let route1 = Arc::new(SampleRouter::new( "/page1" , "page1"));
+        let route2 = Arc::new(SampleRouter::new("/page2", "page2"));
+        let route3 = Arc::new(SampleRouter::new("/page3", "page3"));
+        let mut v_routes: Vec<Arc<Router>> = Vec::new();
+        v_routes.push(route1);
+        v_routes.push(route2);
+        v_routes.push(route3);
+        v_routes
+    }
+
+    fn dispatch_to_string(router_resolver: RouteResolver, req: HyperRequest, status_code: StatusCode) -> String {
+        let router = router_resolver.get_router().unwrap();
+        let response = router.dispatch(req, status_code).wait().unwrap();
+        let body = response.body();
+        let body_content = body.concat2().and_then(|body| {
+            let stringify = String::from(from_utf8(&body).unwrap());
+            ok(stringify)
+        }).wait().unwrap();
+        body_content
+    }
+
+    #[test]
+    fn test_resolver_to_page1() {
+        let uri = "https://www.rss-server.org/page1".parse().unwrap();
+        let req = HyperRequest::new(Method::Get, uri);
+
+        let routes = Arc::new(get_routers());
+        let router_resolver = RouteResolver::new(&routes);
+
+        let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
+        assert_eq!(status_code, StatusCode::Found);
+
+        let body = dispatch_to_string(router_resolver, req, status_code);
+
+        let expected = "page1";
+        assert_eq!(body, expected, "Expetted: \"{}\", got \"{}\"", expected, body);
+    }
+
+    #[test]
+    fn test_resolver_to_page2() {
+        let uri = "https://www.rss-server.org/page2".parse().unwrap();
+        let req = HyperRequest::new(Method::Get, uri);
+
+        let routes = Arc::new(get_routers());
+        let router_resolver = RouteResolver::new(&routes);
+        let router_resolver = router_resolver.next().ok().unwrap();
+
+        let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
+        assert_eq!(status_code, StatusCode::Found);
+
+        let body = dispatch_to_string(router_resolver, req, status_code);
+
+        let expected = "page2";
+        assert_eq!(body, expected, "Expetted: \"{}\", got \"{}\"", expected, body);
+    }
+
+    #[test]
+    fn test_resolver_to_page3() {
+        let uri = "https://www.rss-server.org/page3".parse().unwrap();
+        let req = HyperRequest::new(Method::Get, uri);
+
+        let routes = Arc::new(get_routers());
+        let router_resolver = RouteResolver::new(&routes);
+        let router_resolver = router_resolver.next().ok().unwrap();
+        let router_resolver = router_resolver.next().ok().unwrap();
+
+        let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
+        assert_eq!(status_code, StatusCode::Found);
+
+        let body = dispatch_to_string(router_resolver, req, status_code);
+
+        let expected = "page3";
+        assert_eq!(body, expected, "Expetted: \"{}\", got \"{}\"", expected, body);
+    }
+
+    #[test]
+    fn test_resolver_max_resolvers() {
+        let routes = Arc::new(get_routers());
+        let n_resolvers = routes.len();
+        let mut router_resolver = RouteResolver::new(&routes);
+
+        router_resolver.ix = n_resolvers-1;
+
+        assert!(router_resolver.get_router().is_some());
+        let router_resolver = router_resolver.next();
+        assert!(router_resolver.is_err());
+
+    }
+
 }
