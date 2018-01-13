@@ -1,5 +1,6 @@
 use ResponseFuture;
 
+use HttpError;
 use hyper::server::{Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 use std::io::Error;
 use futures::future;
@@ -9,16 +10,15 @@ use hyper::Error as HyperError;
 
 use std::sync::Arc;
 
-
 /// A `Router` is a trait meant to be used for addressing requests.
 ///
-/// Routers are usualy chained together in a vector and passed to a [`RouterService`](struct.RouterService.html)
+/// Routers are usually chained together in a vector and passed to a [`RouterService`](struct.RouterService.html)
 /// When a request arrives, the asynchronous [`route`](trait.Router.html#tymethod.route) method is called.
 ///
 /// - If the future result is NOT an error, the response generation is delegated to the [`dispatch`](trait.Router.html#tymethod.dispatch) method.
 /// - If the future result is an error, and the associated status code is `NotFound` (404) the computation is delegated to the
-/// next `Router` of [`RouterService`](struct.RouterService.html). If every route has been attepted and has failed or if the status code associated
-/// to the error is different from `NotFound`. The special Router `error_handler` of [`RouterService`](struct.RouterService.html) is usedto display
+/// next `Router` of [`RouterService`](struct.RouterService.html). If every route has been accepted and has failed or if the status code associated
+/// to the error is different from `NotFound`. The special Router `error_handler` of [`RouterService`](struct.RouterService.html) is used to display
 /// the error message.
 ///
 /// Routers are usually passed to [`RouterService::new`](struct.RouterService.html#tymethod.new), an [Hyper](https://hyper.rs/)
@@ -27,15 +27,23 @@ pub trait Router: Sync + Send {
     /// This method is used to perform the routing logic. If the status code is not returned as an error,
     /// the [`dispatch`](trait.Router.html#tymethod.dispatch) method will be called to render the HTTP
     /// response.
-    fn route(&self, req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>>;
+    fn route(&self, req: &HyperRequest) -> Box<Future<Item=StatusCode, Error=StatusCode>>;
 
     /// This method processes the request and return the response asynchronously. If the future resolves to an error,
-    /// the response generation is delegeted to the [`RouterService`](struct.RouterService.html) `error_handler`.
+    /// the response generation is delegated to the [`RouterService`](struct.RouterService.html) `error_handler`.
     fn dispatch(
         &self,
         req: HyperRequest,
         status_code: StatusCode,
-    ) -> Box<Future<Item = HyperResponse, Error = HyperError>>;
+    ) -> Box<Future<Item=HyperResponse, Error=HttpError>>;
+}
+
+pub trait ErrorHandler: Sync + Send {
+    /// This method processes the request and return the response asynchronously..
+    fn dispatch(
+        &self,
+        http_error: HttpError,
+    ) -> ResponseFuture;
 }
 
 struct RouteResolver {
@@ -54,7 +62,7 @@ impl RouteResolver {
     fn route(
         self,
         req: &HyperRequest,
-    ) -> Box<Future<Item = (Self, StatusCode), Error = (Self, StatusCode)>> {
+    ) -> Box<Future<Item=(Self, StatusCode), Error=(Self, StatusCode)>> {
         let router = &mut self.get_router();
         match *router {
             Some(ref mut router) => Box::new(
@@ -85,16 +93,16 @@ impl RouteResolver {
     }
 }
 
-/// A `RouterService` is a sevice that delegates the computation of an HTTP response to a list of
+/// A `RouterService` is a service that delegates the computation of an HTTP response to a list of
 /// routers (see [`Router`](trait.Router.html)).
 ///
 /// If no router is suitable for the given HTTP request, then a special `Router`, the `error_handler`,
 /// is used to return the response. `error_handler` is used to render error messages.
 pub struct RouterService {
-    ///Vector of routers that will participate in the coice of the correct dispatcher
+    ///Vector of routers that will participate in the choice of the correct dispatcher
     routers: Arc<Vec<Arc<Router>>>,
     ///If no router can dispatch the response, error_handler is used to render the error
-    error_handler: Arc<Router>,
+    error_handler: Arc<ErrorHandler>,
 }
 
 impl RouterService {
@@ -103,7 +111,7 @@ impl RouterService {
     /// - `routers`: Vector of routers that will participate in the choice of the correct dispatcher
     /// - `error_handler`: This special `Router` is invoked when no routes can resolve the request or when a
     /// `Router` returns an error different from a `NotFound` (404).
-    pub fn new(routers: Vec<Arc<Router>>, error_handler: &Arc<Router>) -> RouterService {
+    pub fn new(routers: Vec<Arc<Router>>, error_handler: &Arc<ErrorHandler>) -> RouterService {
         RouterService {
             routers: Arc::new(routers),
             error_handler: Arc::clone(error_handler),
@@ -122,11 +130,12 @@ impl HyperService for RouterService {
         let e_handler = Arc::clone(&self.error_handler);
         let status_code = StatusCode::NotFound;
         Box::new(
-            future::loop_fn((route_resolver, req, status_code), |(route_resolver,
-              req,
-              _status_code)| {
+            future::loop_fn((route_resolver,
+                             req,
+                             status_code), |(route_resolver,
+                                                req,
+                                                _status_code)| {
                 route_resolver.route(&req).then(|route_result| {
-
                     match route_result {
                         Ok((route_resolver, status_code)) => {
                             let router = route_resolver.get_router();
@@ -155,26 +164,40 @@ impl HyperService for RouterService {
                                         ))),
                                     }
                                 }
-                                _ => Ok(Loop::Break((route_resolver, req, status_code))),
+                                _ => Ok(Loop::Break((
+                                    route_resolver,
+                                    req,
+                                    status_code))),
                             }
                         }
                     }
                 })
-            }).then(move |route_resolver_and_req: Result<
-                (RouteResolver,
-                 HyperRequest,
-                 StatusCode),
-                Error,
-            >| match route_resolver_and_req {
-                Ok((route_resolver, req, status_code)) => {
-                    let router = route_resolver.get_router();
-                    match router {
-                        Some(router) => router.dispatch(req, status_code),
-                        _ => e_handler.dispatch(req, status_code),
-                    }
+            }).then(
+//                move
+|route_resolver_and_req: Result<
+    (RouteResolver,
+     HyperRequest,
+     StatusCode),
+    Error,
+>| match route_resolver_and_req {
+    Ok((route_resolver,
+           req,
+           status_code)) => {
+        let router = route_resolver.get_router();
+        match router {
+            Some(router) => router.dispatch(req, status_code),
+            _ => Box::new(err(HttpError::new(req, StatusCode::NotFound)))//e_handler.dispatch(req, status_code),
+        }
+    }
+    Err(e) => panic!("This should never happen!\n{}", e),
+}).then(move |dispatch_result| {
+                match dispatch_result {
+                    Ok(res) => Box::new(ok(res)),
+                    Err(http_error) => e_handler.dispatch(http_error)
                 }
-                Err(e) => panic!("This should never happen!\n{}", e),
-            }),
+            }
+        //Box<Future<Item = HyperResponse, Error = RssError>>;
+            ),
         )
     }
 }
@@ -187,7 +210,7 @@ mod tests {
 
     use super::*;
     use hyper::header::ContentLength;
-    use hyper::{Method};
+    use hyper::Method;
     use futures::Stream;
     use std::str::from_utf8;
 
@@ -198,25 +221,21 @@ mod tests {
 
     impl SampleRouter {
         fn new(path: &str, content: &str) -> SampleRouter {
-            SampleRouter{
+            SampleRouter {
                 content: content.to_owned(),
                 path: path.to_owned(),
             }
         }
     }
 
-    struct ErrorHandler;
+    struct SampleErrorHandler;
 
-    impl Router for ErrorHandler {
-        fn route(&self, _req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>> {
-            Box::new(ok(StatusCode::Found))
-        }
-
+    impl ErrorHandler for SampleErrorHandler {
         fn dispatch(
             &self,
-            _req: HyperRequest,
-            status_code: StatusCode,
-        ) -> Box<Future<Item = HyperResponse, Error = HyperError>> {
+            error: HttpError,
+        ) -> ResponseFuture {
+            let status_code = error.status_code;
             let content = format!("{}", status_code.as_u16());
             let res = HyperResponse::new()
                 .with_header(ContentLength(content.len() as u64))
@@ -226,7 +245,7 @@ mod tests {
     }
 
     impl Router for SampleRouter {
-        fn route(&self, req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>> {
+        fn route(&self, req: &HyperRequest) -> Box<Future<Item=StatusCode, Error=StatusCode>> {
             if &self.path == req.path() {
                 Box::new(ok(StatusCode::Found))
             } else {
@@ -237,7 +256,7 @@ mod tests {
             &self,
             _req: HyperRequest,
             _status_code: StatusCode,
-        ) -> Box<Future<Item = HyperResponse, Error = HyperError>> {
+        ) -> Box<Future<Item=HyperResponse, Error=HttpError>> {
             let content = self.content.clone();
             let res = HyperResponse::new()
                 .with_header(ContentLength(content.len() as u64))
@@ -247,7 +266,7 @@ mod tests {
     }
 
     fn get_routers() -> Vec<Arc<Router>> {
-        let route1 = Arc::new(SampleRouter::new( "/page1" , "page1"));
+        let route1 = Arc::new(SampleRouter::new("/page1", "page1"));
         let route2 = Arc::new(SampleRouter::new("/page2", "page2"));
         let route3 = Arc::new(SampleRouter::new("/page3", "page3"));
         let mut v_routes: Vec<Arc<Router>> = Vec::new();
@@ -328,12 +347,10 @@ mod tests {
         let n_resolvers = routes.len();
         let mut router_resolver = RouteResolver::new(&routes);
 
-        router_resolver.ix = n_resolvers-1;
+        router_resolver.ix = n_resolvers - 1;
 
         assert!(router_resolver.get_router().is_some());
         let router_resolver = router_resolver.next();
         assert!(router_resolver.is_err());
-
     }
-
 }

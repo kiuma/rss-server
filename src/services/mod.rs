@@ -1,3 +1,3 @@
 mod routing;
 
-pub use self::routing::{RouterService, Router};
+pub use self::routing::{RouterService, Router, ErrorHandler};

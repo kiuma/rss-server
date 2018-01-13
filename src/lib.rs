@@ -2,7 +2,7 @@
 //!
 //! It also defines common traits for services and configurables.
 
-#![feature(proc_macro, conservative_impl_trait, generators, associated_type_defaults)]
+//#![feature(proc_macro, conservative_impl_trait, generators, associated_type_defaults)]
 
 #[macro_use]
 extern crate log;
@@ -19,7 +19,7 @@ extern crate tokio_core;
 extern crate hyper;
 
 mod errors;
-pub use errors::RssError;
+pub use errors::{RssError, HttpError};
 
 mod config;
 pub use config::RssConfigurable;

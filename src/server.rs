@@ -10,7 +10,7 @@ use hyper::server::{Http, Request as HyperRequest, Response as HyperResponse,
 
 use config::RssConfigurable;
 
-use errors::RssError;
+use errors::{RssError, HttpError};
 use tokio_pool::TokioPool;
 
 use std::fs::File;
@@ -175,25 +175,21 @@ mod tests {
     use hyper::StatusCode;
     use hyper::header::ContentLength;
 
-    use services::{RouterService, Router};
+    use services::{RouterService, Router, ErrorHandler};
 
     use futures::future::ok;
 
-    struct ErrorHandler {}
+    struct SampleErrorHandler {}
 
-    impl Router for ErrorHandler {
-        fn route(&self, _req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>> {
-            Box::new(ok(StatusCode::InternalServerError))
-        }
+    impl ErrorHandler for SampleErrorHandler {
         fn dispatch(
             &self,
-            _req: HyperRequest,
-            status_code: StatusCode,
+            error: HttpError,
         ) -> Box<Future<Item = HyperResponse, Error = HyperError>> {
-            let html_error = String::from(format!("Error page: {}", status_code.as_u16()));
+            let html_error = String::from(format!("Error page: {}", error));
             Box::new(ok(
                 HyperResponse::new()
-                    .with_status(status_code)
+                    .with_status(error.status_code)
                     .with_header(ContentLength(html_error.len() as u64))
                     .with_body(html_error),
             ))
@@ -219,7 +215,7 @@ mod tests {
             remove_file(filename.clone()).unwrap();
         }
 
-        let error_handler: Arc<Router> = Arc::new(ErrorHandler {});
+        let error_handler: Arc<ErrorHandler> = Arc::new(SampleErrorHandler {});
 
         let root_service = Arc::new(RouterService::new(Vec::new(), &error_handler));
 
