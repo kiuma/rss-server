@@ -4,28 +4,25 @@
 
 //#![feature(proc_macro, conservative_impl_trait, generators, associated_type_defaults)]
 
-#[macro_use]
-extern crate log;
-
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 extern crate toml;
 
 extern crate futures;
-extern crate tokio_pool;
 extern crate tokio_core;
+extern crate tokio_pool;
 
 extern crate hyper;
 
 mod errors;
-pub use errors::{RssError, HttpError};
+pub use errors::{HttpError, RssError};
 
 mod config;
 pub use config::RssConfigurable;
 
 mod server;
-pub use server::{HttpServer, RssHttpServer, RssService, ResponseFuture};
+pub use server::{HttpServer, ResponseFuture, RssHttpServer, RssService};
 
 mod services;
-pub use services::{RouterService, Router};
+pub use services::{Router, RouterService};

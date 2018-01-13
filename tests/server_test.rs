@@ -13,6 +13,5 @@
 
 #[test]
 fn serving_requests() {
-
     assert_eq!(1, 1);
 }
