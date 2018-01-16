@@ -8,7 +8,6 @@ use hyper::server::{Http, Request as HyperRequest, Response as HyperResponse,
 
 use config::RssConfigurable;
 
-
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -24,8 +23,8 @@ pub type RssService = HyperService<
     Error = HyperError,
     Future = ResponseFuture,
 >;
-    // + Send
-    // + Sync;
+// + Send
+// + Sync;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RssServerConfig {

@@ -3,8 +3,7 @@ use std::convert::From;
 use hyper::StatusCode;
 use hyper::server::Request as HyperRequest;
 
-use std::{fmt};
-
+use std::fmt;
 
 #[derive(Debug)]
 /// This error is used to optionally concatenate an error with another.
