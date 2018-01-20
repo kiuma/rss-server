@@ -23,8 +23,6 @@ pub type RssService = HyperService<
     Error = HyperError,
     Future = ResponseFuture,
 >;
-// + Send
-// + Sync;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct RssServerConfig {
@@ -36,28 +34,11 @@ struct RssServerConfig {
 ///Default implementor of trait [`HttpServer`](trait.HttpServer.html)
 pub struct RssHttpServer {
     _config: RssServerConfig,
+    _http: Http,
 }
 
 struct DefaultRssHttpConfigurator {
     path: PathBuf,
-}
-
-/// This tarit defines an RSS HTTP server.
-/// An RSS HTTP server is a multithreaduing and async/io web server based on
-/// [Hyper](https://hyper.rs/) and [futures](https://docs.rs/futures/0.1.17/futures/).
-///
-/// Through a routing system it drivers the business logic for serving pages and handling error
-/// messages.
-///
-/// [`RssHttpServer`](struct.RssHttpServer.html) is its default implementation.
-pub trait HttpServer {
-    type Err;
-    type Item;
-    /// Creates a new server defining the configuration path (used by services implementing [RssConfigurable](trait.RssConfigurable.html))
-    /// and the root service, the entry point to handle the request dispatching logic.
-    ///
-    /// Starts the server and begins serving requests
-    fn start(&self, service: Rc<RssService>) -> Result<(), Self::Err>;
 }
 
 /// Server default configuration, converted using serde. This constant is used when no "http-server.toml"
@@ -110,18 +91,18 @@ impl RssConfigurable for DefaultRssHttpConfigurator {
         }
     }
 }
-
-impl HttpServer for RssHttpServer {
-    type Err = HyperError;
-    type Item = RssHttpServer;
-
-    fn start(&self, service: Rc<RssService>) -> Result<(), Self::Err> {
-        let server_address = format!("{}:{}", self._config.bind_address, self._config.bind_port);
-        let addr = server_address.parse().unwrap();
-        let server = Http::new().bind(&addr, move || Ok(Rc::clone(&service)))?;
-        server.run()
-    }
-}
+//
+// impl HttpServer for RssHttpServer {
+//     type Err = HyperError;
+//     type Item = RssHttpServer;
+//
+//     fn start(&self, service: Rc<RssService>) -> Result<(), Self::Err> {
+//         let server_address = format!("{}:{}", self._config.bind_address, self._config.bind_port);
+//         let addr = server_address.parse().unwrap();
+//         let server = Http::new().bind(&addr, move || Ok(Rc::clone(&service)))?;
+//         server.run()
+//     }
+// }
 
 //========================== TESTS =====================================================//
 #[cfg(test)]

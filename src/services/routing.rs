@@ -1,5 +1,3 @@
-use ResponseFuture;
-
 use HttpError;
 use hyper::server::{Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 use std::io::Error;
@@ -7,8 +5,16 @@ use futures::future;
 use futures::future::{err, ok, Future, Loop};
 use hyper::StatusCode;
 use hyper::Error as HyperError;
-
 use std::rc::Rc;
+
+pub type ResponseFuture = Box<Future<Item = HyperResponse, Error = HyperError>>;
+
+pub type RssService = HyperService<
+    Request = HyperRequest,
+    Response = HyperResponse,
+    Error = HyperError,
+    Future = ResponseFuture,
+>;
 
 /// A `Router` is a trait meant to be used for addressing requests.
 ///
