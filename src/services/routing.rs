@@ -1,5 +1,3 @@
-use ResponseFuture;
-
 use HttpError;
 use hyper::server::{Request as HyperRequest, Response as HyperResponse, Service as HyperService};
 use std::io::Error;
@@ -7,8 +5,16 @@ use futures::future;
 use futures::future::{err, ok, Future, Loop};
 use hyper::StatusCode;
 use hyper::Error as HyperError;
-
 use std::rc::Rc;
+
+pub type ResponseFuture = Box<Future<Item = HyperResponse, Error = HyperError>>;
+
+pub type RssService = HyperService<
+    Request = HyperRequest,
+    Response = HyperResponse,
+    Error = HyperError,
+    Future = ResponseFuture,
+>;
 
 /// A `Router` is a trait meant to be used for addressing requests.
 ///
@@ -74,6 +80,7 @@ impl RouteResolver {
 
     fn next(mut self) -> Result<Self, Self> {
         if self.ix + 1 >= self.routers.len() {
+            self.ix = self.routers.len();
             Err(self)
         } else {
             self.ix += 1;
@@ -185,7 +192,7 @@ impl HyperService for RouterService {
 //========================== TESTS =====================================================//
 #[cfg(test)]
 mod tests {
-    extern crate http;
+    // extern crate http;
 
     use super::*;
     use hyper::header::ContentLength;
@@ -214,6 +221,7 @@ mod tests {
             let status_code = error.status_code;
             let content = format!("{}", status_code.as_u16());
             let res = HyperResponse::new()
+                .with_status(status_code)
                 .with_header(ContentLength(content.len() as u64))
                 .with_body(content);
             Box::new(ok(res))
@@ -223,7 +231,7 @@ mod tests {
     impl Router for SampleRouter {
         fn route(&self, req: &HyperRequest) -> Box<Future<Item = StatusCode, Error = StatusCode>> {
             if &self.path == req.path() {
-                Box::new(ok(StatusCode::Found))
+                Box::new(ok(StatusCode::Ok))
             } else {
                 Box::new(err(StatusCode::NotFound))
             }
@@ -252,13 +260,7 @@ mod tests {
         v_routes
     }
 
-    fn dispatch_to_string(
-        router_resolver: RouteResolver,
-        req: HyperRequest,
-        status_code: StatusCode,
-    ) -> String {
-        let router = router_resolver.get_router().unwrap();
-        let response = router.dispatch(req, status_code).wait().unwrap();
+    fn dispatch_to_string(response: HyperResponse) -> String {
         let body = response.body();
         let body_content = body.concat2()
             .and_then(|body| {
@@ -270,76 +272,54 @@ mod tests {
         body_content
     }
 
-    #[test]
-    fn test_resolver_to_page1() {
-        let uri = "https://www.rss-server.org/page1".parse().unwrap();
+    fn test_resolver_to_page(page: &str, router_resolver: RouteResolver) {
+        let uri = format!("https://www.rss-server.org/{}", page)
+            .parse()
+            .unwrap();
         let req = HyperRequest::new(Method::Get, uri);
 
+        let route_result = router_resolver.route(&req).wait().ok();
+
+        let (router_resolver, status_code) = match route_result {
+            Some((router_resolver, status_code)) => (router_resolver, status_code),
+            None => panic!("No route found for {}", req.path()),
+        };
+        //let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
+        assert_eq!(status_code, StatusCode::Ok);
+
+        let router = router_resolver.get_router().unwrap();
+        let response = router.dispatch(req, status_code).wait().unwrap();
+
+        let body = dispatch_to_string(response);
+
+        assert_eq!(body, page, "Expetted: \"{}\", got \"{}\"", page, body);
+    }
+
+    #[test]
+    fn test_resolver_to_page1() {
         let routes = Rc::new(get_routers());
         let router_resolver = RouteResolver::new(&routes);
 
-        let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
-        assert_eq!(status_code, StatusCode::Found);
-
-        let body = dispatch_to_string(router_resolver, req, status_code);
-
-        let expected = "page1";
-        assert_eq!(
-            body,
-            expected,
-            "Expetted: \"{}\", got \"{}\"",
-            expected,
-            body
-        );
+        test_resolver_to_page("page1", router_resolver);
     }
 
     #[test]
     fn test_resolver_to_page2() {
-        let uri = "https://www.rss-server.org/page2".parse().unwrap();
-        let req = HyperRequest::new(Method::Get, uri);
-
         let routes = Rc::new(get_routers());
-        let router_resolver = RouteResolver::new(&routes);
-        let router_resolver = router_resolver.next().ok().unwrap();
+        let mut router_resolver = RouteResolver::new(&routes);
+        router_resolver = router_resolver.next().ok().unwrap();
 
-        let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
-        assert_eq!(status_code, StatusCode::Found);
-
-        let body = dispatch_to_string(router_resolver, req, status_code);
-
-        let expected = "page2";
-        assert_eq!(
-            body,
-            expected,
-            "Expetted: \"{}\", got \"{}\"",
-            expected,
-            body
-        );
+        test_resolver_to_page("page2", router_resolver);
     }
 
     #[test]
     fn test_resolver_to_page3() {
-        let uri = "https://www.rss-server.org/page3".parse().unwrap();
-        let req = HyperRequest::new(Method::Get, uri);
-
         let routes = Rc::new(get_routers());
-        let router_resolver = RouteResolver::new(&routes);
-        let router_resolver = router_resolver.next().ok().unwrap();
-        let router_resolver = router_resolver.next().ok().unwrap();
+        let mut router_resolver = RouteResolver::new(&routes);
+        router_resolver = router_resolver.next().ok().unwrap();
+        router_resolver = router_resolver.next().ok().unwrap();
 
-        let (router_resolver, status_code) = router_resolver.route(&req).wait().ok().unwrap();
-        assert_eq!(status_code, StatusCode::Found);
-
-        let body = dispatch_to_string(router_resolver, req, status_code);
-
-        let expected = "page3";
-        assert_eq!(
-            body,
-            expected,
-            "Expetted: \"{}\", got \"{}\"",
-            expected,
-            body
-        );
+        test_resolver_to_page("page3", router_resolver);
     }
 
     #[test]
@@ -353,5 +333,65 @@ mod tests {
         assert!(router_resolver.get_router().is_some());
         let router_resolver = router_resolver.next();
         assert!(router_resolver.is_err());
+    }
+
+    fn test_router_service_to_page(page: &str) {
+        let uri = format!("https://www.rss-server.org/{}", page)
+            .parse()
+            .unwrap();
+        let req = HyperRequest::new(Method::Get, uri);
+
+        let routes = get_routers();
+        let error_handler: Rc<ErrorHandler> = Rc::new(SampleErrorHandler {});
+
+        let router_service = RouterService::new(routes, &error_handler);
+
+        let response = router_service.call(req).wait().ok().unwrap();
+
+        assert_eq!(response.status(), StatusCode::Ok);
+
+        let body = dispatch_to_string(response);
+
+        assert_eq!(body, page, "Expetted: \"{}\", got \"{}\"", page, body);
+    }
+
+    #[test]
+    fn test_router_service_to_page1() {
+        test_router_service_to_page("page1");
+    }
+
+    #[test]
+    fn test_router_service_to_page2() {
+        test_router_service_to_page("page2");
+    }
+
+    #[test]
+    fn test_router_service_to_page3() {
+        test_router_service_to_page("page3");
+    }
+
+    #[test]
+    fn test_router_service_to_page_not_found() {
+        let uri = "https://www.rss-server.org/notFound".parse().unwrap();
+        let req = HyperRequest::new(Method::Get, uri);
+
+        let routes = get_routers();
+        let error_handler: Rc<ErrorHandler> = Rc::new(SampleErrorHandler {});
+
+        let router_service = RouterService::new(routes, &error_handler);
+
+        let response = router_service.call(req).wait().ok().unwrap();
+
+        assert_eq!(response.status(), StatusCode::NotFound);
+
+        let body = dispatch_to_string(response);
+        let expected = format!("{}", (StatusCode::NotFound).as_u16());
+        assert_eq!(
+            body,
+            expected,
+            "Expetted: \"{}\", got \"{}\"",
+            expected,
+            body
+        );
     }
 }

@@ -3,21 +3,7 @@ use std::convert::From;
 use hyper::StatusCode;
 use hyper::server::Request as HyperRequest;
 
-use std::{fmt};
-
-
-#[derive(Debug)]
-/// This error is used to optionally concatenate an error with another.
-/// Used as Err type in [`DefaultRssHttpServer`](struct.DefaultRssHttpServer.html)
-pub struct RssError {
-    /// HTTP status code
-    pub status_code: StatusCode,
-    /// Error description
-    pub description: String,
-    /// Optional parent error
-    pub parent: Option<Box<Error>>,
-    reason: String,
-}
+use std::fmt;
 
 #[derive(Debug)]
 pub struct HttpError {
