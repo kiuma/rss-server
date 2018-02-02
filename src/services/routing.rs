@@ -387,11 +387,9 @@ mod tests {
         let body = dispatch_to_string(response);
         let expected = format!("{}", (StatusCode::NotFound).as_u16());
         assert_eq!(
-            body,
-            expected,
+            body, expected,
             "Expetted: \"{}\", got \"{}\"",
-            expected,
-            body
+            expected, body
         );
     }
 }
